@@ -463,6 +463,135 @@ public partial class MainWindow : Window
         RefreshView();
     }
 
+    // «Показать содержимое» сводной плитки: раскрываем более мелкие элементы,
+    // не попавшие в основной вид (не входящие в уже показанные единицы).
+    void ShowRemainderContents(DirNode root)
+    {
+        var surfacedFolders = _entries
+            .Where(e => e.Kind == Kind.Folder && !string.IsNullOrEmpty(e.Node.Path))
+            .Select(e => e.Node.Path).ToList();
+        var surfacedFiles = new HashSet<string>(
+            _entries.Where(e => e.Kind == Kind.File).Select(e => e.Node.Path),
+            StringComparer.OrdinalIgnoreCase);
+
+        bool UnderSurfaced(string p)
+        {
+            if (surfacedFiles.Contains(p)) return true;
+            foreach (var sf in surfacedFolders)
+            {
+                if (p.Equals(sf, StringComparison.OrdinalIgnoreCase)) return true;
+                string prefix = sf.EndsWith("\\") ? sf : sf + "\\";
+                if (p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        long lowerMin = Math.Max(4L << 20, root.Size / 20000);   // порог мельче основного
+        var rest = Analysis.GlobalExplode(root, lowerMin)
+            .Where(it => !UnderSurfaced(it.Path))
+            .OrderByDescending(it => it.Size)
+            .ToList();
+
+        ShowItemsWindow("Мелкие файлы и прочее — что внутри", root, rest);
+    }
+
+    void ShowItemsWindow(string title, DirNode root, List<Analysis.ExplodeItem> items)
+    {
+        long total = items.Sum(i => i.Size);
+        long maxItem = items.Count > 0 ? items[0].Size : 1;
+        if (maxItem < 1) maxItem = 1;
+        string Rel(string p) => p.Length > root.Path.Length ? Path.GetRelativePath(root.Path, p) : p;
+
+        var plain = new StringBuilder();
+        plain.AppendLine(title);
+        plain.AppendLine(root.Path);
+        plain.AppendLine(new string('─', 56));
+        foreach (var it in items.Take(500))
+            plain.AppendLine($"  {Format.Size(it.Size),12}   {(it.IsFile ? "" : "[папка] ")}{Rel(it.Path)}");
+
+        UIElement Build()
+        {
+            Brush Br(string k) => (Brush)Application.Current.Resources[k];
+            Brush FG = Br("Fg"), FGS = Br("FgStrong"), DIM = Br("FgDim"), TRACK = Br("Border"), PANEL = Br("PanelBg"), ACC = Br("CrumbFg");
+
+            var panel = new StackPanel { Margin = new Thickness(22) };
+            panel.Children.Add(new TextBlock { Text = title, Foreground = FGS, FontSize = 18, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            panel.Children.Add(new TextBlock { Text = $"{Format.Count(items.Count)} элементов  ·  {Format.Size(total)}", Foreground = FG, FontSize = 13.5, Margin = new Thickness(0, 6, 0, 12) });
+
+            if (items.Count == 0)
+            {
+                panel.Children.Add(new TextBlock { Text = "Здесь не осталось ничего заметного — только совсем мелочь.", Foreground = DIM, FontSize = 13 });
+            }
+            else
+            {
+                const int cap = 400;
+                for (int i = 0; i < Math.Min(items.Count, cap); i++)
+                {
+                    var it = items[i];
+                    Color c = it.IsFile ? (_dark ? Hex("#5E6E8C") : Hex("#A9B6CC")) : TreemapView.ColorForIndex(i, !_dark);
+
+                    var g = new Grid { Height = 26 };
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(86) });
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    var glyph = new System.Windows.Shapes.Path { Data = it.IsFile ? FileGlyphGeo : FolderGlyphGeo, Fill = new SolidColorBrush(c), Width = 13, Height = 13, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(glyph, 0); g.Children.Add(glyph);
+
+                    var nm = new TextBlock { Text = Rel(it.Path), Foreground = FG, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 10, 0) };
+                    Grid.SetColumn(nm, 1); g.Children.Add(nm);
+
+                    var barGrid = new Grid { Width = 160, Height = 7, VerticalAlignment = VerticalAlignment.Center };
+                    barGrid.Children.Add(new Border { CornerRadius = new CornerRadius(4), Background = TRACK });
+                    barGrid.Children.Add(new Border { CornerRadius = new CornerRadius(4), Background = new SolidColorBrush(c), HorizontalAlignment = HorizontalAlignment.Left, Width = Math.Max(3, (double)it.Size / maxItem * 160) });
+                    Grid.SetColumn(barGrid, 2); g.Children.Add(barGrid);
+
+                    var sz = new TextBlock { Text = Format.Size(it.Size), Foreground = FG, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(10, 0, 8, 0) };
+                    Grid.SetColumn(sz, 3); g.Children.Add(sz);
+
+                    var open = new TextBlock { Text = "Открыть", Foreground = ACC, FontSize = 11.5, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Открыть в проводнике и выделить" };
+                    string p = it.Path;
+                    open.MouseLeftButtonUp += (_, _) => OpenInExplorerSelect(p);
+                    Grid.SetColumn(open, 4); g.Children.Add(open);
+
+                    panel.Children.Add(g);
+                }
+                if (items.Count > cap)
+                    panel.Children.Add(new TextBlock { Text = $"… и ещё {Format.Count(items.Count - cap)} (показаны крупнейшие {cap})", Foreground = DIM, FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 6, 0, 0) });
+            }
+
+            var sv = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Background = Br("WinBg") };
+            var copy = new Button { Content = "Копировать текст", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(12), Style = (Style)Application.Current.FindResource("DialogButton") };
+            copy.Click += (_, _) => { try { Clipboard.SetText(plain.ToString()); } catch { } };
+            var barRow = new Border { Background = PANEL, BorderBrush = TRACK, BorderThickness = new Thickness(0, 1, 0, 0), Child = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Children = { copy } } };
+            var grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(sv, 0); grid.Children.Add(sv);
+            Grid.SetRow(barRow, 1); grid.Children.Add(barRow);
+            return grid;
+        }
+
+        var win = new Window
+        {
+            Title = title,
+            Owner = this,
+            Icon = Icon,
+            Width = 780,
+            Height = 720,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        win.Background = (Brush)Application.Current.Resources["WinBg"];
+        win.Content = Build();
+        ShowThemedWindow(win, () =>
+        {
+            win.Background = (Brush)Application.Current.Resources["WinBg"];
+            win.Content = Build();
+        });
+    }
+
     List<Entry> BuildEntries(DirNode folder)
     {
         var list = new List<Entry>();
@@ -683,6 +812,14 @@ public partial class MainWindow : Window
             menu.Items.Add(mi);
         }
 
+        // «Мелкие файлы и прочее» в глобальном виде — раскрыть, из чего состоит.
+        if (_global && slice.Aggregate && _globalRoot is { } gRoot)
+        {
+            var mi = new MenuItem { Header = "Показать содержимое" };
+            mi.Click += (_, _) => ShowRemainderContents(gRoot);
+            menu.Items.Add(mi);
+        }
+
         // Отчёт по файлам этой папки (для настоящих папок, где есть файлы).
         if (!slice.IsFile && !slice.Aggregate && node.FileCount > 0)
         {
@@ -707,14 +844,14 @@ public partial class MainWindow : Window
             menu.Items.Add(mi);
         }
 
-        if (slice.IsFile && File.Exists(node.Path))
+        if (slice.IsFile && !slice.Aggregate && File.Exists(node.Path))   // отдельный файл
         {
             if (menu.Items.Count > 0) menu.Items.Add(new Separator());
             var mi = new MenuItem { Header = "Открыть в проводнике" };
             mi.Click += (_, _) => OpenInExplorerSelect(node.Path);
             menu.Items.Add(mi);
         }
-        else if (!string.IsNullOrEmpty(node.Path) && Directory.Exists(node.Path))
+        else if (!slice.IsFile && !string.IsNullOrEmpty(node.Path) && Directory.Exists(node.Path))  // папка (в т.ч. остаток развёртки)
         {
             if (menu.Items.Count > 0) menu.Items.Add(new Separator());
             var mi = new MenuItem { Header = "Открыть в проводнике" };
