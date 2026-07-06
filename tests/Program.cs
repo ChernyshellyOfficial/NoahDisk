@@ -93,5 +93,16 @@ Check("greedy(need500) → не хватает, все 10", g3.Folders.Count == 
 var g4 = Analysis.PlanGreedyCapped(cands, 80 * GB, 5 * GB);
 Check("greedy(cap5) → только мелкие ≤5", g4.Folders.All(f => f.Size <= 5 * GB));
 
+Console.WriteLine();
+Console.WriteLine("CollectFiles tests:");
+var cfRoot = new DirNode { Path = @"X:\A", Name = "A", Files = new() { new FileItem("a.txt", 10), new FileItem("b.bin", 20) } };
+var cfSub = new DirNode { Path = @"X:\A\sub", Name = "sub", Files = new() { new FileItem("c.dat", 30) } };
+cfRoot.Children.Add(cfSub);
+var cf = Analysis.CollectFiles(cfRoot);
+Check("собрано 3 файла из поддерева", cf.Count == 3);
+Check("суммарный размер файлов = 60", cf.Sum(x => x.Size) == 60);
+Check("путь вложенного файла корректен", cf.Any(x => x.Path == @"X:\A\sub\c.dat"));
+Check("папка без Files не ломает сбор", Analysis.CollectFiles(new DirNode { Path = "Y", Name = "Y" }).Count == 0);
+
 Console.WriteLine(failed == 0 ? "\nИТОГ: все тесты прошли ✔" : $"\nИТОГ: провалено {failed}");
 return failed == 0 ? 0 : 1;

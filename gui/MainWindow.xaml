@@ -165,7 +165,9 @@
                         Style="{StaticResource AccentButton}" Click="OnRescan"
                         ToolTip="Пересканировать текущую папку (свёртки и позиция сохранятся)"/>
                 <Button DockPanel.Dock="Right" x:Name="ReportButton" Content="Отчёт" Margin="6,0,0,0"
-                        Style="{StaticResource ToolButton}" Click="OnReport" ToolTip="Сводка по текущей папке"/>
+                        Style="{StaticResource ToolButton}" Click="OnReport" ToolTip="Сводка по папкам текущей папки"/>
+                <Button DockPanel.Dock="Right" x:Name="FilesButton" Content="Файлы" Margin="6,0,0,0"
+                        Style="{StaticResource ToolButton}" Click="OnFileReport" ToolTip="Отчёт по файлам: что занимает место"/>
                 <Button DockPanel.Dock="Right" x:Name="CleanupButton" Content="Что удалить?" Margin="6,0,0,0"
                         Style="{StaticResource ToolButton}" Click="OnCleanup"
                         ToolTip="Подсказать, что удалить, чтобы освободить место"/>
@@ -237,12 +239,13 @@
                             <DataTemplate>
                                 <Grid Height="36">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="18"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Width="10" Height="10" CornerRadius="2"
-                                            Background="{Binding Swatch}" VerticalAlignment="Center"/>
+                                    <Path Grid.Column="0" Data="{Binding Glyph}" Fill="{Binding Swatch}"
+                                          Width="14" Height="14" Stretch="Uniform"
+                                          VerticalAlignment="Center" HorizontalAlignment="Center"/>
                                     <StackPanel Grid.Column="1" Margin="9,0,8,0" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Fg}" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>

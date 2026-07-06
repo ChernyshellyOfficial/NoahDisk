@@ -12,6 +12,9 @@ namespace SpaceSaver;
 //  Общий код сканирования — используется и консолью, и GUI.
 // ============================================================================
 
+/// <summary>Файл: имя и размер (для учёта и отчёта по файлам).</summary>
+public readonly record struct FileItem(string Name, long Size);
+
 /// <summary>Папка и её суммарный размер.</summary>
 public sealed class DirNode
 {
@@ -24,6 +27,9 @@ public sealed class DirNode
     public DirNode? Parent;
     public List<DirNode> Children = new();
 
+    // Прямые файлы этой папки — заполняются только при сканировании с collectFiles (в GUI).
+    public List<FileItem>? Files;
+
     // Для синтетических узлов «остаток» при умной развёртке: исходная свёрнутая папка.
     public DirNode? UnwrapSource;
 }
@@ -32,18 +38,18 @@ public sealed class DirNode
 /// <summary>Рекурсивный обход файловой системы с подсчётом размеров.</summary>
 public static class Scanner
 {
-    public static DirNode ScanRoot(DirectoryInfo dir, ScanStats stats)
+    public static DirNode ScanRoot(DirectoryInfo dir, ScanStats stats, bool collectFiles = false)
     {
         var root = new DirNode { Path = dir.FullName, Name = NiceName(dir) };
         var subdirs = new List<DirectoryInfo>();
-        EnumerateInto(dir, root, subdirs, stats);
+        EnumerateInto(dir, root, subdirs, stats, collectFiles);
 
         // Верхнеуровневые подпапки считаем параллельно — обычно там и сидит основной объём.
         var childResults = new DirNode?[subdirs.Count];
         var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount) };
         Parallel.For(0, subdirs.Count, po, i =>
         {
-            childResults[i] = ScanRecursive(subdirs[i], stats);
+            childResults[i] = ScanRecursive(subdirs[i], stats, collectFiles);
         });
 
         foreach (var c in childResults)
@@ -58,15 +64,15 @@ public static class Scanner
         return root;
     }
 
-    static DirNode ScanRecursive(DirectoryInfo dir, ScanStats stats)
+    static DirNode ScanRecursive(DirectoryInfo dir, ScanStats stats, bool collectFiles)
     {
         var node = new DirNode { Path = dir.FullName, Name = dir.Name };
         var subdirs = new List<DirectoryInfo>();
-        EnumerateInto(dir, node, subdirs, stats);
+        EnumerateInto(dir, node, subdirs, stats, collectFiles);
 
         foreach (var sd in subdirs)
         {
-            var child = ScanRecursive(sd, stats);
+            var child = ScanRecursive(sd, stats, collectFiles);
             child.Parent = node;
             node.Children.Add(child);
             node.Size += child.Size;
@@ -77,7 +83,7 @@ public static class Scanner
     }
 
     // Один уровень: складывает размеры файлов в node, а подпапки добавляет в subdirs.
-    static void EnumerateInto(DirectoryInfo dir, DirNode node, List<DirectoryInfo> subdirs, ScanStats stats)
+    static void EnumerateInto(DirectoryInfo dir, DirNode node, List<DirectoryInfo> subdirs, ScanStats stats, bool collectFiles)
     {
         IEnumerator<FileSystemInfo> e;
         try
@@ -114,6 +120,7 @@ public static class Scanner
                         node.OwnFileSize += len;
                         node.Size += len;
                         node.FileCount++;
+                        if (collectFiles) (node.Files ??= new()).Add(new FileItem(f.Name, len));
                         stats.AddFile(len);
                     }
                     else if (entry is DirectoryInfo d)

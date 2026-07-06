@@ -112,4 +112,24 @@ public static class Analysis
         plan.ReachedTarget = plan.Freed >= need;
         return plan;
     }
+
+    /// <summary>Файл с полным путём (для отчёта по файлам).</summary>
+    public readonly record struct FileRef(string Path, long Size);
+
+    /// <summary>Все файлы поддерева (с полными путями). Требует скана с collectFiles.</summary>
+    public static List<FileRef> CollectFiles(DirNode root)
+    {
+        var result = new List<FileRef>();
+        var stack = new Stack<DirNode>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            if (n.Files != null)
+                foreach (var f in n.Files)
+                    result.Add(new FileRef(System.IO.Path.Combine(n.Path, f.Name), f.Size));
+            foreach (var c in n.Children) stack.Push(c);
+        }
+        return result;
+    }
 }

@@ -11,7 +11,8 @@ public sealed class Slice
 {
     public required DirNode Node;
     public bool Clickable;     // настоящая папка, в которую можно провалиться
-    public bool Aggregate;     // служебная плитка (файлы / остаток / «прочее»)
+    public bool Aggregate;     // служебная плитка (остаток / «прочее»)
+    public bool IsFile;        // файл (или сводка файлов) — рисуем иконку-документ
     public Color Color;
 }
 
@@ -27,17 +28,27 @@ public sealed class TreemapView : FrameworkElement
     int _selected = -1;
     bool _hasData;
 
-    public event Action<DirNode?>? Inspect;
-    public event Action<DirNode>? Drill;
+    public event Action<DirNode?, bool>? Inspect;   // (узел, это файл?)
+    public event Action<DirNode>? Drill;             // двойной клик по папке
+    public event Action<DirNode>? FileActivated;     // двойной клик по файлу
     public event Action<Slice>? ContextRequested;
 
     // тема
-    Brush _back = null!, _label = null!, _shadow = null!, _hint = null!;
+    Brush _back = null!, _label = null!, _shadow = null!, _hint = null!, _fileGlyph = null!;
     Color _aggColor;
     Pen _grid = null!, _hoverPen = null!, _selPen = null!;
 
     static readonly Typeface Face =
         new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+
+    // Силуэт документа (с загнутым уголком) в системе координат 11×15.
+    static readonly Geometry FileGlyph = MakeFileGlyph();
+    static Geometry MakeFileGlyph()
+    {
+        var g = Geometry.Parse("M0,0 L7,0 L11,4 L11,15 L0,15 Z");
+        g.Freeze();
+        return g;
+    }
 
     public TreemapView()
     {
@@ -54,6 +65,7 @@ public sealed class TreemapView : FrameworkElement
             _label = B(Color.FromRgb(0x14, 0x18, 0x20));
             _shadow = B(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
             _hint = B(Color.FromRgb(0x9A, 0xA1, 0xAD));
+            _fileGlyph = B(Color.FromArgb(0x70, 0x14, 0x18, 0x20));
             _aggColor = Color.FromRgb(0xCF, 0xD4, 0xDC);
             _grid = P(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF), 1);
             _hoverPen = P(Color.FromRgb(0x1A, 0x1E, 0x26), 2);
@@ -65,6 +77,7 @@ public sealed class TreemapView : FrameworkElement
             _label = B(Color.FromRgb(0xF2, 0xF4, 0xF8));
             _shadow = B(Color.FromArgb(0xCC, 0, 0, 0));
             _hint = B(Color.FromRgb(0x6B, 0x72, 0x80));
+            _fileGlyph = B(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF));
             _aggColor = Color.FromRgb(0x30, 0x34, 0x3D);
             _grid = P(Color.FromArgb(0x66, 0, 0, 0), 1);
             _hoverPen = P(Color.FromRgb(0xFF, 0xFF, 0xFF), 2);
@@ -137,6 +150,7 @@ public sealed class TreemapView : FrameworkElement
             var fill = i == _hover ? Brighten(slice.Color, 1.18) : slice.Color;
             dc.DrawRoundedRectangle(new SolidColorBrush(fill), _grid, rect, 3, 3);
             DrawLabel(dc, slice, rect);
+            if (slice.IsFile) DrawFileGlyph(dc, rect);
         }
 
         if (_selected >= 0 && _selected < _tiles.Count)
@@ -155,7 +169,7 @@ public sealed class TreemapView : FrameworkElement
     {
         if (r.Width < 50 || r.Height < 22) return;
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        double maxW = Math.Max(1, r.Width - 10);
+        double maxW = Math.Max(1, r.Width - (slice.IsFile ? 24 : 10));
 
         var name = Text(slice.Node.Name, 12.5, _label, dpi, maxW);
         var shadow = Text(slice.Node.Name, 12.5, _shadow, dpi, maxW);
@@ -171,6 +185,18 @@ public sealed class TreemapView : FrameworkElement
             dc.DrawText(size, new Point(x, y + 17));
         }
         dc.Pop();
+    }
+
+    void DrawFileGlyph(DrawingContext dc, Rect r)
+    {
+        if (r.Width < 40 || r.Height < 24) return;
+        const double gw = 10, gh = 14;
+        double gx = r.Right - gw - 6, gy = r.Y + 6;
+        dc.PushClip(new RectangleGeometry(r));
+        dc.PushTransform(new TranslateTransform(gx, gy));
+        dc.PushTransform(new ScaleTransform(gw / 11.0, gh / 15.0));
+        dc.DrawGeometry(_fileGlyph, null, FileGlyph);
+        dc.Pop(); dc.Pop(); dc.Pop();
     }
 
     static FormattedText Text(string s, double size, Brush brush, double dpi, double maxW)
@@ -212,9 +238,13 @@ public sealed class TreemapView : FrameworkElement
         if (t < 0) return;
         _selected = t;
         var slice = _tiles[t].slice;
-        Inspect?.Invoke(slice.Node);
+        Inspect?.Invoke(slice.Node, slice.IsFile);
         InvalidateVisual();
-        if (e.ClickCount == 2 && slice.Clickable) Drill?.Invoke(slice.Node);
+        if (e.ClickCount == 2)
+        {
+            if (slice.Clickable) Drill?.Invoke(slice.Node);
+            else if (slice.IsFile) FileActivated?.Invoke(slice.Node);
+        }
     }
 
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
