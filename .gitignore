@@ -1,0 +1,12 @@
+# build output
+bin/
+obj/
+publish/
+dist/
+dist-gui/
+dist-gui-portable/
+*.user
+
+# runtime / temp
+SpaceSaver-crash.log
+uitest-result.txt

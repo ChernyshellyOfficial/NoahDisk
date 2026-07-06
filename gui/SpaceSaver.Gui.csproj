@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SpaceSaver</AssemblyName>
+    <RootNamespace>SpaceSaver.Gui</RootNamespace>
+    <!-- ВАЖНО: НЕ включать InvariantGlobalization — в WPF это ломает культуру en-US
+         в шаблонах (MultiBinding у MenuItem), и контекстное меню падает с
+         "Cannot find non-neutral culture related to 'en-us'". -->
+    <Version>1.0.0</Version>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <!-- Авторство (видно в Свойствах exe → Подробно). -->
+    <Authors>Chernyshelly</Authors>
+    <Company>Chernyshelly</Company>
+    <Product>SpaceSaver</Product>
+    <Copyright>© Chernyshelly</Copyright>
+    <Description>SpaceSaver — анализатор занятого места на диске. github.com/ChernyshellyOfficial</Description>
+    <RepositoryUrl>https://github.com/ChernyshellyOfficial</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/ChernyshellyOfficial</PackageProjectUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Переиспользуем сканер и текстовый отчёт из корня проекта по исходнику. -->
+    <Compile Include="..\Scanner.cs" Link="Scanner.cs" />
+    <Compile Include="..\TextReport.cs" Link="TextReport.cs" />
+    <Compile Include="..\Analysis.cs" Link="Analysis.cs" />
+    <!-- Иконка как ресурс — чтобы её можно было ставить в Window.Icon. -->
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+</Project>
