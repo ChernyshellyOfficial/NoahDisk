@@ -161,6 +161,9 @@
                         Style="{StaticResource ToolButton}" Click="OnUp" ToolTip="Вверх (Backspace)"/>
                 <Button DockPanel.Dock="Left" x:Name="BrowseButton" Content="Обзор…" Margin="6,0,0,0"
                         Style="{StaticResource ToolButton}" Click="OnBrowse"/>
+                <Button DockPanel.Dock="Left" x:Name="GlobalButton" Content="Глобальный скан" Margin="10,0,0,0"
+                        Style="{StaticResource AccentButton}" Click="OnGlobalScan"
+                        ToolTip="Полный скан папки и раскладка всего значимого (игры, программы, тяжёлые файлы) в один вид"/>
                 <Button DockPanel.Dock="Right" x:Name="RefreshButton" Content="Обновить" Margin="6,0,0,0"
                         Style="{StaticResource AccentButton}" Click="OnRescan"
                         ToolTip="Пересканировать текущую папку (свёртки и позиция сохранятся)"/>

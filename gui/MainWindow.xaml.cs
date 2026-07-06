@@ -38,6 +38,9 @@ public partial class MainWindow : Window
     string _inspectPath = "";
     DirNode? _inspectNode;                                         // узел, показанный в панели деталей
     bool _inspectIsFile;
+    bool _global;                                                  // включён «глобальный вид»
+    DirNode? _globalRoot;                                          // корень глобального скана
+    bool _pendingGlobal;                                           // после скана войти в глобальный вид
     readonly List<(Window Window, Action Retheme)> _childWindows = new(); // открытые окна Отчёт/Что удалить
     const string GithubUrl = "https://github.com/ChernyshellyOfficial";
 
@@ -105,7 +108,8 @@ public partial class MainWindow : Window
             ApplyDarkTitleBar(w, _dark);
             retheme();
         }
-        if (Current != null) RefreshView();
+        if (_global && _globalRoot != null) EnterGlobalView(_globalRoot);
+        else if (Current != null) RefreshView();
     }
 
     void ApplyTheme()
@@ -176,6 +180,26 @@ public partial class MainWindow : Window
         await StartScan(navPaths[0], navPaths);
     }
 
+    // «Глобальный скан» — полный скан + раскладка всего значимого в один вид.
+    async void OnGlobalScan(object sender, RoutedEventArgs e)
+    {
+        var path = (PathBox.Text ?? "").Trim().Trim('"');
+        if (File.Exists(path)) path = Path.GetDirectoryName(path) ?? path;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            Status.Text = $"Папка не найдена: {path}";
+            return;
+        }
+        var r = MessageBox.Show(
+            $"Глобальный скан полностью просканирует «{path}» и разложит всё значимое — игры, программы, тяжёлые файлы — в один общий вид, куда бы глубоко они ни лежали.\n\n" +
+            "Для целого диска это может занять заметно больше времени, чем обычный просмотр. Продолжить?",
+            "Глобальный скан", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (r != MessageBoxResult.Yes) return;
+
+        _pendingGlobal = true;
+        await StartScan(path);
+    }
+
     async Task StartScan(string? path, List<string>? restoreNav = null)
     {
         if (_scanning) return;
@@ -230,6 +254,8 @@ public partial class MainWindow : Window
             Status.Text =
                 $"{Format.Size(root.Size)}  ·  {Format.Count(root.FileCount)} файлов  ·  " +
                 $"{Format.Count(root.DirCount)} папок  ·  {_sw.Elapsed.TotalSeconds:0.0} с{Notes(stats)}";
+
+            if (_pendingGlobal) EnterGlobalView(root);
         }
         catch (Exception ex)
         {
@@ -237,6 +263,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _pendingGlobal = false;
             _timer.Stop();
             Progress.IsIndeterminate = false;
             Progress.Visibility = Visibility.Collapsed;
@@ -264,6 +291,7 @@ public partial class MainWindow : Window
     {
         RefreshButton.IsEnabled = on;
         BrowseButton.IsEnabled = on;
+        GlobalButton.IsEnabled = on;
         PathBox.IsEnabled = on;
         ReportButton.IsEnabled = on;
         FilesButton.IsEnabled = on;
@@ -274,12 +302,14 @@ public partial class MainWindow : Window
     // ======================= навигация =======================
     void DrillInto(DirNode node)
     {
+        if (_global) { ExitGlobalTo(node); return; }
         _history.Add(node);
         RefreshView();
     }
 
     void GoUp()
     {
+        if (_global) { _global = false; RefreshView(); return; }
         if (_history.Count > 1)
         {
             _history.RemoveAt(_history.Count - 1);
@@ -301,11 +331,23 @@ public partial class MainWindow : Window
     // ======================= построение вида =======================
     void RefreshView()
     {
+        _global = false;
         var folder = Current;
         if (folder == null) return;
 
         _entries = BuildEntries(folder);
+        RenderEntries();
+        BuildBreadcrumb();
+        UpdateDetails(folder, false);
+        UpButton.IsEnabled = _history.Count > 1;
 
+        bool hasUnwraps = _unwrapped.TryGetValue(folder.Path, out var set) && set.Count > 0;
+        ResetButton.Visibility = hasUnwraps ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Строит плитки и строки из текущих _entries (общий код для обычного и глобального вида).
+    void RenderEntries()
+    {
         long max = _entries.Count > 0 ? _entries.Max(e => e.Node.Size) : 1;
         if (max < 1) max = 1;
 
@@ -345,12 +387,80 @@ public partial class MainWindow : Window
 
         Treemap.SetSlices(slices);
         ChildList.ItemsSource = rows;
-        BuildBreadcrumb();
-        UpdateDetails(folder, false);
-        UpButton.IsEnabled = _history.Count > 1;
+    }
 
-        bool hasUnwraps = _unwrapped.TryGetValue(folder.Path, out var set) && set.Count > 0;
-        ResetButton.Visibility = hasUnwraps ? Visibility.Visible : Visibility.Collapsed;
+    // ======================= глобальный вид =======================
+    void EnterGlobalView(DirNode root)
+    {
+        _global = true;
+        _globalRoot = root;
+
+        var items = Analysis.GlobalExplode(root);
+        _entries = BuildGlobalEntries(root, items);
+        RenderEntries();
+        BuildGlobalBreadcrumb(root);
+        UpdateDetails(root, false);
+        UpButton.IsEnabled = true;
+        ResetButton.Visibility = Visibility.Collapsed;
+
+        int folders = items.Count(i => !i.IsFile);
+        int fileItems = items.Count(i => i.IsFile);
+        Status.Text = $"Глобальный вид: {Format.Count(folders)} папок-единиц + {Format.Count(fileItems)} тяжёлых файлов в {Format.Size(root.Size)}";
+    }
+
+    List<Entry> BuildGlobalEntries(DirNode root, List<Analysis.ExplodeItem> items)
+    {
+        var list = new List<Entry>();
+        const int cap = 400;
+        int shown = Math.Min(items.Count, cap);
+        long shownSum = 0;
+        for (int i = 0; i < shown; i++)
+        {
+            var it = items[i];
+            shownSum += it.Size;
+            if (it.IsFile)
+                list.Add(new Entry { Node = new DirNode { Path = it.Path, Name = it.Name, Size = it.Size }, Clickable = false, Kind = Kind.File });
+            else
+                list.Add(new Entry { Node = it.Node!, Clickable = true, Kind = Kind.Folder });
+        }
+
+        long rest = root.Size - shownSum; // всё несущественное + переполнение сверх cap
+        if (rest > 0)
+        {
+            string name = items.Count > shown
+                ? $"… ещё {Format.Count(items.Count - shown)} + мелочь"
+                : "Мелкие файлы и прочее";
+            list.Add(new Entry { Node = new DirNode { Path = root.Path, Name = name, Size = rest }, Clickable = false, Kind = Kind.FilesTail });
+        }
+
+        list.Sort((a, b) => b.Node.Size.CompareTo(a.Node.Size));
+        return list;
+    }
+
+    void BuildGlobalBreadcrumb(DirNode root)
+    {
+        Breadcrumb.Items.Clear();
+        var back = new Button { Content = "← Обычный вид", Style = (Style)FindResource("CrumbButton") };
+        back.Click += (_, _) => { _global = false; RefreshView(); };
+        Breadcrumb.Items.Add(back);
+        Breadcrumb.Items.Add(new TextBlock
+        {
+            Text = "    Глобальный вид · " + root.Path,
+            Foreground = (Brush)Application.Current.Resources["FgDim"],
+            VerticalAlignment = VerticalAlignment.Center
+        });
+    }
+
+    void ExitGlobalTo(DirNode node)
+    {
+        // строим историю по цепочке родителей (root → … → node)
+        var chain = new List<DirNode>();
+        for (var n = node; n != null; n = n.Parent) chain.Add(n);
+        chain.Reverse();
+        _global = false;
+        _history.Clear();
+        _history.AddRange(chain);
+        RefreshView();
     }
 
     List<Entry> BuildEntries(DirNode folder)
@@ -564,6 +674,14 @@ public partial class MainWindow : Window
         if (folder == null) return;
 
         var menu = new ContextMenu { Placement = PlacementMode.MousePoint, PlacementTarget = Treemap };
+
+        // В глобальном виде — перейти к настоящей папке.
+        if (_global && !slice.IsFile && !slice.Aggregate)
+        {
+            var mi = new MenuItem { Header = "Перейти к папке" };
+            mi.Click += (_, _) => ExitGlobalTo(node);
+            menu.Items.Add(mi);
+        }
 
         // Отчёт по файлам этой папки (для настоящих папок, где есть файлы).
         if (!slice.IsFile && !slice.Aggregate && node.FileCount > 0)

@@ -104,5 +104,54 @@ Check("суммарный размер файлов = 60", cf.Sum(x => x.Size) =
 Check("путь вложенного файла корректен", cf.Any(x => x.Path == @"X:\A\sub\c.dat"));
 Check("папка без Files не ломает сбор", Analysis.CollectFiles(new DirNode { Path = "Y", Name = "Y" }).Count == 0);
 
+Console.WriteLine();
+Console.WriteLine("GlobalExplode tests:");
+
+static DirNode Dir(string name, long size, params DirNode[] kids)
+{
+    var n = new DirNode { Path = @"D:\" + name, Name = name, Size = size };
+    n.Children.AddRange(kids);
+    return n;
+}
+static DirNode FileDir(string name, long size, params (string n, long s)[] fs)
+{
+    var n = new DirNode { Path = @"D:\" + name, Name = name, Size = size, Files = new() };
+    foreach (var (fn, sz) in fs) n.Files.Add(new FileItem(fn, sz));
+    return n;
+}
+
+var geCommon = Dir("common", 600,
+    FileDir("Wukong", 300, ("game.pak", 300)),
+    FileDir("CP2077", 200, ("data.bin", 200)),
+    FileDir("Dota", 100, ("d.dat", 100)));
+var geGames = Dir("games", 880,
+    Dir("steam", 600, Dir("steamapps", 600, geCommon)),
+    FileDir("GameA", 180, ("a.pak", 180)),
+    FileDir("GameB", 100, ("b.pak", 100)));
+var gePrograms = Dir("programs", 300,
+    Dir("development", 300, FileDir("VS", 200, ("vs.exe", 200)), FileDir("Rider", 100, ("r.exe", 100))));
+var geDownloads = FileDir("downloads", 231, ("movie.mkv", 150), ("installer.exe", 80), ("note.txt", 1));
+var gRoot = Dir("D", 1411, geGames, gePrograms, geDownloads);
+
+var g = Analysis.GlobalExplode(gRoot, 50);
+var gn = g.Select(i => i.Name).ToList();
+Check("развёрнуто ровно 9 значимых элементов", g.Count == 9);
+Check("игры из steam/common всплыли", gn.Contains("Wukong") && gn.Contains("CP2077") && gn.Contains("Dota"));
+Check("игры прямо из games всплыли", gn.Contains("GameA") && gn.Contains("GameB"));
+Check("программы всплыли", gn.Contains("VS") && gn.Contains("Rider"));
+Check("тяжёлые файлы из downloads всплыли", gn.Contains("movie.mkv") && gn.Contains("installer.exe"));
+Check("контейнеры НЕ всплыли", !gn.Contains("games") && !gn.Contains("steam") && !gn.Contains("common") && !gn.Contains("downloads") && !gn.Contains("programs"));
+Check("файлы внутри игр не всплыли отдельно", !gn.Contains("game.pak") && !gn.Contains("a.pak"));
+Check("игра — папка, а movie — файл", !g.First(i => i.Name == "Wukong").IsFile && g.First(i => i.Name == "movie.mkv").IsFile);
+
+// глубокая одноцепочечная игра: BlackMythWukong(138) → b1(138) → Content(138) → Paks(138)
+var bmw = Dir("BlackMythWukong", 138, Dir("b1", 138, Dir("Content", 138, FileDir("Paks", 138, ("a.pak", 138)))));
+var other = FileDir("OtherGame", 160, ("g.pak", 160));
+var deepRoot = Dir("root", 298, Dir("games2", 298, bmw, other));
+var ge2 = Analysis.GlobalExplode(deepRoot, 50).Select(i => i.Name).ToList();
+Check("глубокая цепочка всплывает именем СТАРШЕЙ папки (BlackMythWukong)", ge2.Contains("BlackMythWukong"));
+Check("глубокие звенья цепочки НЕ всплывают", !ge2.Contains("b1") && !ge2.Contains("Content") && !ge2.Contains("Paks"));
+Check("файл-игра из коллекции — как папка, не как файл", ge2.Contains("OtherGame") && !ge2.Contains("g.pak"));
+
 Console.WriteLine(failed == 0 ? "\nИТОГ: все тесты прошли ✔" : $"\nИТОГ: провалено {failed}");
 return failed == 0 ? 0 : 1;
