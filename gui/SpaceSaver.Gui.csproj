@@ -31,6 +31,15 @@
     <Compile Include="..\Analysis.cs" Link="Analysis.cs" />
     <!-- Иконка как ресурс — чтобы её можно было ставить в Window.Icon. -->
     <Resource Include="app.ico" />
+    <!-- Встроенная база имён игр (снимок Steam), gzip. Разворачивается в GameDb.
+         LogicalName фиксирует имя ресурса, чтобы не зависеть от RootNamespace. -->
+    <EmbeddedResource Include="steam_names.txt.gz">
+      <LogicalName>steam_names.txt.gz</LogicalName>
+    </EmbeddedResource>
+    <!-- Встроенный список имён программ (снимок Chocolatey), gzip. Разворачивается в ProgramDb. -->
+    <EmbeddedResource Include="program_names.txt.gz">
+      <LogicalName>program_names.txt.gz</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

@@ -23,6 +23,7 @@ public partial class MainWindow : Window
         public required DirNode Node;
         public bool Clickable;
         public Kind Kind;
+        public string? Display;   // подпись вместо Node.Name (имя игры/программы), если задана
     }
 
     readonly List<DirNode> _history = new();                       // путь навигации, последний = текущая папка
@@ -35,9 +36,7 @@ public partial class MainWindow : Window
     readonly Stopwatch _sw = new();
     bool _scanning;
     bool _dark = true;
-    string _inspectPath = "";
-    DirNode? _inspectNode;                                         // узел, показанный в панели деталей
-    bool _inspectIsFile;
+    bool _syncSel;                                                 // защита от зацикливания синхронизации выбора treemap↔список
     bool _global;                                                  // включён «глобальный вид»
     DirNode? _globalRoot;                                          // корень глобального скана
     bool _pendingGlobal;                                           // после скана войти в глобальный вид
@@ -66,6 +65,9 @@ public partial class MainWindow : Window
         ApplyTheme();
         PathBox.Text = DefaultPath();
         Status.Text = "Выбери папку и нажми «Обзор…» — скан начнётся сразу. Можно перетащить папку в окно.";
+
+        // Прогреваем базы (имена игр + программ + реестр) в фоне, чтобы глобальный скан не подтормаживал.
+        Task.Run(() => { GameDb.Ensure(); ProgramDb.Ensure(); _ = InstalledPrograms.Count; });
 
         Loaded += OnLoaded;
     }
@@ -192,6 +194,7 @@ public partial class MainWindow : Window
         }
         var r = MessageBox.Show(
             $"Глобальный скан полностью просканирует «{path}» и разложит всё значимое — игры, программы, тяжёлые файлы — в один общий вид, куда бы глубоко они ни лежали.\n\n" +
+            "Известные игры (по встроенной базе названий) показываются целиком, а не дробятся на внутренние папки.\n\n" +
             "Для целого диска это может занять заметно больше времени, чем обычный просмотр. Продолжить?",
             "Глобальный скан", MessageBoxButton.YesNo, MessageBoxImage.Information);
         if (r != MessageBoxResult.Yes) return;
@@ -370,17 +373,19 @@ public partial class MainWindow : Window
                 Clickable = e.Clickable,
                 Aggregate = e.Kind is Kind.Remainder or Kind.FilesTail,
                 IsFile = isFile,
-                Color = col
+                Color = col,
+                Label = e.Display
             });
             rows.Add(new RowVM
             {
                 Node = e.Node,
-                Name = e.Node.Name,
+                Name = e.Display ?? e.Node.Name,
                 SizeText = Format.Size(e.Node.Size),
                 Swatch = new SolidColorBrush(col),
                 BarWidth = Math.Max(3, (double)e.Node.Size / max * 150),
                 Clickable = e.Clickable,
                 IsFile = isFile,
+                Aggregate = e.Kind is Kind.Remainder or Kind.FilesTail,
                 Glyph = isFile ? FileGlyphGeo : FolderGlyphGeo
             });
         }
@@ -390,12 +395,61 @@ public partial class MainWindow : Window
     }
 
     // ======================= глобальный вид =======================
+
+    // Резолвер «известной единицы» для GlobalExplode: сперва программа по пути установки
+    // (реестр, с правильным именем), затем известная игра по имени папки.
+    static Func<DirNode, string?> UnitResolver()
+    {
+        var gi = GameDb.Ensure();
+        var pi = ProgramDb.Ensure();
+        return node =>
+        {
+            bool isGame = gi.Matches(node.Name);
+            // 1) установленная программа по пути (реестр) — с правильным именем;
+            //    но игровые библиотеки (Steam: внутри есть steamapps) НЕ сворачиваем одной
+            //    плиткой — их надо разложить на игры, которые дальше сами узнаются.
+            var prog = InstalledPrograms.Resolve(node.Path);
+            if (prog != null && !IsGameLibrary(node))
+            {
+                // Если папка — известная игра, а имя из реестра к ней не относится
+                // (мод/русификатор/патч, прописавший себя на папку игры) — показываем игру.
+                if (isGame && !NamesRelated(prog, node.Name)) return node.Name;
+                return prog;
+            }
+            // 2) известная игра по имени папки; 3) известная программа по имени папки.
+            if (isGame) return node.Name;
+            if (pi.Matches(node.Name)) return node.Name;
+            return null;
+        };
+    }
+
+    // Имена «про одно и то же»: нормализованное более короткое — префикс более длинного
+    // (напр. «Black Myth: Wukong» ↔ папка «BlackMythWukong»). Русификатор к игре не относится.
+    static bool NamesRelated(string a, string b)
+    {
+        var na = Analysis.GameNameIndex.Normalize(a);
+        var nb = Analysis.GameNameIndex.Normalize(b);
+        if (na.Length < 6 || nb.Length < 6) return false;
+        var (shorter, longer) = na.Length <= nb.Length ? (na, nb) : (nb, na);
+        return longer.StartsWith(shorter, StringComparison.Ordinal);
+    }
+
+    // Папка — игровая библиотека (её надо разворачивать в игры, а не показывать целиком),
+    // если внутри есть подпапка steamapps (Steam-клиент и вторичные Steam-библиотеки).
+    static bool IsGameLibrary(DirNode node)
+    {
+        foreach (var c in node.Children)
+            if (string.Equals(c.Name, "steamapps", StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
     void EnterGlobalView(DirNode root)
     {
         _global = true;
         _globalRoot = root;
 
-        var items = Analysis.GlobalExplode(root);
+        var items = Analysis.GlobalExplode(root, null, UnitResolver());
         _entries = BuildGlobalEntries(root, items);
         RenderEntries();
         BuildGlobalBreadcrumb(root);
@@ -405,7 +459,9 @@ public partial class MainWindow : Window
 
         int folders = items.Count(i => !i.IsFile);
         int fileItems = items.Count(i => i.IsFile);
-        Status.Text = $"Глобальный вид: {Format.Count(folders)} папок-единиц + {Format.Count(fileItems)} тяжёлых файлов в {Format.Size(root.Size)}";
+        string db = GameDb.Ensure().Count > 0 ? $" · база игр: {Format.Count(GameDb.Ensure().Count)}" : "";
+        string pr = InstalledPrograms.Count > 0 ? $" · программ: {Format.Count(InstalledPrograms.Count)}" : "";
+        Status.Text = $"Глобальный вид: {Format.Count(folders)} папок-единиц + {Format.Count(fileItems)} тяжёлых файлов в {Format.Size(root.Size)}{db}{pr}";
     }
 
     List<Entry> BuildGlobalEntries(DirNode root, List<Analysis.ExplodeItem> items)
@@ -421,7 +477,9 @@ public partial class MainWindow : Window
             if (it.IsFile)
                 list.Add(new Entry { Node = new DirNode { Path = it.Path, Name = it.Name, Size = it.Size }, Clickable = false, Kind = Kind.File });
             else
-                list.Add(new Entry { Node = it.Node!, Clickable = true, Kind = Kind.Folder });
+                // it.Name может быть «красивым» именем (программа из реестра) — показываем его как подпись,
+                // но Node оставляем настоящим (для перехода/деталей/проводника).
+                list.Add(new Entry { Node = it.Node!, Clickable = true, Kind = Kind.Folder, Display = it.Name });
         }
 
         long rest = root.Size - shownSum; // всё несущественное + переполнение сверх cap
@@ -487,7 +545,7 @@ public partial class MainWindow : Window
         }
 
         long lowerMin = Math.Max(4L << 20, root.Size / 20000);   // порог мельче основного
-        var rest = Analysis.GlobalExplode(root, lowerMin)
+        var rest = Analysis.GlobalExplode(root, lowerMin, UnitResolver())
             .Where(it => !UnderSurfaced(it.Path))
             .OrderByDescending(it => it.Size)
             .ToList();
@@ -609,7 +667,7 @@ public partial class MainWindow : Window
                 if (rem > 0)
                     list.Add(new Entry
                     {
-                        Node = new DirNode { Path = child.Path, Name = child.Name + " — прочее", Size = rem, UnwrapSource = child },
+                        Node = new DirNode { Path = child.Path, Name = child.Name + " — остаток", Size = rem, UnwrapSource = child },
                         Clickable = false,
                         Kind = Kind.Remainder
                     });
@@ -671,17 +729,34 @@ public partial class MainWindow : Window
     }
 
     // ======================= детали / список =======================
-    void OnInspect(DirNode? node, bool isFile) => UpdateDetails(node ?? Current, node != null && isFile);
+    void OnInspect(DirNode? node, bool isFile)
+    {
+        var n = node ?? Current;
+        UpdateDetails(n, node != null && isFile);
+        SyncListSelection(n);                 // подсветить ту же строку в списке справа
+    }
+
+    // Выделить в списке справа строку, соответствующую узлу (без повторного захода в OnListSelect).
+    void SyncListSelection(DirNode? node)
+    {
+        _syncSel = true;
+        try
+        {
+            RowVM? row = null;
+            if (node != null && ChildList.ItemsSource is IEnumerable<RowVM> rows)
+                foreach (var r in rows)
+                    if (ReferenceEquals(r.Node, node)) { row = r; break; }
+            ChildList.SelectedItem = row;
+        }
+        finally { _syncSel = false; }
+    }
 
     void UpdateDetails(DirNode? node, bool isFile)
     {
-        _inspectNode = node;
-        _inspectIsFile = isFile;
-
         if (node == null)
         {
             DetailName.Text = ""; DetailPath.Text = ""; DetailSize.Text = ""; DetailMeta.Text = "";
-            UnwrapButton.Visibility = CollapseButton.Visibility = OpenButton.Visibility = Visibility.Collapsed;
+            DetailActions.Children.Clear();
             return;
         }
 
@@ -702,21 +777,33 @@ public partial class MainWindow : Window
         {
             DetailMeta.Text = $"{Format.Count(node.FileCount)} файлов  ·  {Format.Count(node.DirCount)} папок";
         }
-        _inspectPath = node.Path;
 
-        bool isDirectChild = !isFile && Current != null && Current.Children.Contains(node);
-        bool canUnwrap = isDirectChild && node.Children.Count > 0 && !IsUnwrapped(Current!, node);
-        UnwrapButton.Visibility = canUnwrap ? Visibility.Visible : Visibility.Collapsed;
-        CollapseButton.Visibility = node.UnwrapSource != null ? Visibility.Visible : Visibility.Collapsed;
-
-        bool canOpen = isFile ? File.Exists(node.Path)
-                              : (!string.IsNullOrEmpty(node.Path) && Directory.Exists(node.Path));
-        OpenButton.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
+        // Кнопки действий — тот же набор, что и в контекстном меню (ПКМ по плитке/строке).
+        bool isAggregate = _entries.Any(en => ReferenceEquals(en.Node, node) && en.Kind is Kind.Remainder or Kind.FilesTail);
+        DetailActions.Children.Clear();
+        foreach (var (label, act) in BuildActions(node, isFile, isAggregate))
+        {
+            var a = act;
+            var b = new Button
+            {
+                Content = label,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 8, 0, 0),
+                Style = (Style)FindResource(label.StartsWith("Умное добавление") ? "AccentButton" : "ToolButton")
+            };
+            b.Click += (_, _) => a();
+            DetailActions.Children.Add(b);
+        }
     }
 
     void OnListSelect(object sender, SelectionChangedEventArgs e)
     {
-        if (ChildList.SelectedItem is RowVM r) UpdateDetails(r.Node, r.IsFile);
+        if (_syncSel) return;                 // выбор пришёл из treemap — не зацикливаемся
+        if (ChildList.SelectedItem is RowVM r)
+        {
+            UpdateDetails(r.Node, r.IsFile);
+            Treemap.SelectNode(r.Node);        // синхронизируем подсветку слева
+        }
     }
 
     void OnListActivate(object sender, MouseButtonEventArgs e)
@@ -773,93 +860,84 @@ public partial class MainWindow : Window
         RefreshView();
     }
 
-    void OnUnwrapClick(object sender, RoutedEventArgs e)
-    {
-        if (Current != null && _inspectNode != null) Unwrap(Current, _inspectNode);
-    }
-
-    void OnCollapseClick(object sender, RoutedEventArgs e)
-    {
-        if (Current != null && _inspectNode?.UnwrapSource != null) Collapse(Current, _inspectNode.UnwrapSource);
-    }
-
     void OnResetUnwraps(object sender, RoutedEventArgs e)
     {
         if (Current != null) _unwrapped.Remove(Current.Path);
         RefreshView();
     }
 
-    // правый клик по плитке — то же меню (альтернатива кнопкам)
+    // правый клик по плитке — единое контекстное меню
     void OnTreemapContext(Slice slice)
     {
-        try { BuildAndOpenContextMenu(slice); }
+        try { OpenContextMenu(slice.Node, slice.IsFile, slice.Aggregate, Treemap); }
         catch (Exception ex) { App.Log(ex); Status.Text = "Ошибка меню: " + ex.Message; }
     }
 
-    void BuildAndOpenContextMenu(Slice slice)
+    // правый клик по строке списка справа — то же меню, что и по плитке
+    void OnListRightClick(object sender, MouseButtonEventArgs e)
     {
-        var node = slice.Node;
+        try
+        {
+            var dep = e.OriginalSource as DependencyObject;
+            while (dep != null && dep is not ListBoxItem) dep = VisualTreeHelper.GetParent(dep);
+            if (dep is ListBoxItem { DataContext: RowVM r })
+            {
+                ChildList.SelectedItem = r;                 // выделяем строку, как при обычном клике
+                OpenContextMenu(r.Node, r.IsFile, r.Aggregate, ChildList);
+                e.Handled = true;
+            }
+        }
+        catch (Exception ex) { App.Log(ex); Status.Text = "Ошибка меню: " + ex.Message; }
+    }
+
+    // Единый набор действий для узла — общий для контекстного меню (ПКМ по плитке/строке)
+    // и для кнопок в панели деталей. Так набор действий везде одинаковый.
+    List<(string label, Action act)> BuildActions(DirNode? node, bool isFile, bool isAggregate)
+    {
+        var list = new List<(string, Action)>();
         var folder = Current;
-        if (folder == null) return;
+        if (folder == null || node == null) return list;
 
-        var menu = new ContextMenu { Placement = PlacementMode.MousePoint, PlacementTarget = Treemap };
+        if (_global && !isFile && !isAggregate && !ReferenceEquals(node, folder))
+            list.Add(("Перейти к папке", () => ExitGlobalTo(node)));
 
-        // В глобальном виде — перейти к настоящей папке.
-        if (_global && !slice.IsFile && !slice.Aggregate)
+        if (_global && isAggregate && _globalRoot is { } gRoot)
+            list.Add(("Показать содержимое", () => ShowRemainderContents(gRoot)));
+
+        if (!isFile && !isAggregate && node.FileCount > 0)
+            list.Add(("Отчёт по файлам", () => ShowFileReport(node)));
+
+        // «Умное добавление» — фича обычного вида. В глобальном виде всё и так разложено,
+        // а её вызов там сбрасывал бы в обычный вид (и порождал плитку «‹папка› — остаток»).
+        if (!_global && !isAggregate && folder.Children.Contains(node) && node.Children.Count > 0 && !IsUnwrapped(folder, node))
+            list.Add(("Умное добавление к расчётам", () => Unwrap(folder, node)));
+
+        if (node.UnwrapSource is { } src)
+            list.Add(($"Свернуть обратно «{src.Name}»", () => Collapse(folder, src)));
+
+        if (isFile && !isAggregate && File.Exists(node.Path))
+            list.Add(("Открыть в проводнике", () => OpenInExplorerSelect(node.Path)));
+        else if (!isFile && !string.IsNullOrEmpty(node.Path) && Directory.Exists(node.Path))
+            list.Add(("Открыть в проводнике", () => OpenPath(node.Path)));
+
+        return list;
+    }
+
+    void OpenContextMenu(DirNode node, bool isFile, bool isAggregate, UIElement target)
+    {
+        var actions = BuildActions(node, isFile, isAggregate);
+        if (actions.Count == 0) return;
+
+        var menu = new ContextMenu { Placement = PlacementMode.MousePoint, PlacementTarget = target };
+        foreach (var (label, act) in actions)
         {
-            var mi = new MenuItem { Header = "Перейти к папке" };
-            mi.Click += (_, _) => ExitGlobalTo(node);
+            if (label == "Открыть в проводнике" && menu.Items.Count > 0)
+                menu.Items.Add(new Separator());
+            var a = act;
+            var mi = new MenuItem { Header = label };
+            mi.Click += (_, _) => a();
             menu.Items.Add(mi);
         }
-
-        // «Мелкие файлы и прочее» в глобальном виде — раскрыть, из чего состоит.
-        if (_global && slice.Aggregate && _globalRoot is { } gRoot)
-        {
-            var mi = new MenuItem { Header = "Показать содержимое" };
-            mi.Click += (_, _) => ShowRemainderContents(gRoot);
-            menu.Items.Add(mi);
-        }
-
-        // Отчёт по файлам этой папки (для настоящих папок, где есть файлы).
-        if (!slice.IsFile && !slice.Aggregate && node.FileCount > 0)
-        {
-            var mi = new MenuItem { Header = "Отчёт по файлам" };
-            mi.Click += (_, _) => ShowFileReport(node);
-            menu.Items.Add(mi);
-        }
-
-        bool isDirectChild = folder.Children.Contains(node);
-        if (!slice.Aggregate && isDirectChild && node.Children.Count > 0 && !IsUnwrapped(folder, node))
-        {
-            var mi = new MenuItem { Header = "Умное добавление к расчётам" };
-            mi.Click += (_, _) => Unwrap(folder, node);
-            menu.Items.Add(mi);
-        }
-
-        if (node.UnwrapSource != null) // правый клик по плитке-остатку
-        {
-            var src = node.UnwrapSource;
-            var mi = new MenuItem { Header = $"Свернуть обратно «{src.Name}»" };
-            mi.Click += (_, _) => Collapse(folder, src);
-            menu.Items.Add(mi);
-        }
-
-        if (slice.IsFile && !slice.Aggregate && File.Exists(node.Path))   // отдельный файл
-        {
-            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-            var mi = new MenuItem { Header = "Открыть в проводнике" };
-            mi.Click += (_, _) => OpenInExplorerSelect(node.Path);
-            menu.Items.Add(mi);
-        }
-        else if (!slice.IsFile && !string.IsNullOrEmpty(node.Path) && Directory.Exists(node.Path))  // папка (в т.ч. остаток развёртки)
-        {
-            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
-            var mi = new MenuItem { Header = "Открыть в проводнике" };
-            mi.Click += (_, _) => OpenPath(node.Path);
-            menu.Items.Add(mi);
-        }
-
-        if (menu.Items.Count == 0) return;
         menu.IsOpen = true;
     }
 
@@ -1523,12 +1601,6 @@ public partial class MainWindow : Window
     }
 
     // ======================= прочий ввод =======================
-    void OnOpenInExplorer(object sender, RoutedEventArgs e)
-    {
-        if (_inspectIsFile) OpenInExplorerSelect(_inspectPath);
-        else OpenPath(_inspectPath);
-    }
-
     static void OpenPath(string path)
     {
         try
@@ -1681,5 +1753,6 @@ public sealed class RowVM
     public double BarWidth { get; set; }
     public bool Clickable { get; set; }
     public bool IsFile { get; set; }
+    public bool Aggregate { get; set; }
     public Geometry? Glyph { get; set; }
 }

@@ -14,6 +14,7 @@ public sealed class Slice
     public bool Aggregate;     // служебная плитка (остаток / «прочее»)
     public bool IsFile;        // файл (или сводка файлов) — рисуем иконку-документ
     public Color Color;
+    public string? Label;      // подпись вместо Node.Name (например, имя программы из реестра)
 }
 
 /// <summary>
@@ -96,6 +97,16 @@ public sealed class TreemapView : FrameworkElement
         Relayout();
     }
 
+    // Выделить плитку по узлу (синхронизация с выбором в списке справа). null / не найдено — снять.
+    public void SelectNode(DirNode? node)
+    {
+        int idx = -1;
+        if (node != null)
+            for (int i = 0; i < _tiles.Count; i++)
+                if (ReferenceEquals(_tiles[i].slice.Node, node)) { idx = i; break; }
+        if (idx != _selected) { _selected = idx; InvalidateVisual(); }
+    }
+
     protected override void OnRenderSizeChanged(SizeChangedInfo info)
     {
         base.OnRenderSizeChanged(info);
@@ -107,18 +118,21 @@ public sealed class TreemapView : FrameworkElement
         _tiles.Clear();
         if (_slices.Count > 0 && ActualWidth > 4 && ActualHeight > 4)
         {
-            // Слишком мелкие плитки сворачиваем в одну служебную (только для рисования).
+            // Защита рисования от тысяч крошечных плиток (актуально для обычного вида с очень
+            // большим числом подпапок). Порог ВЫШЕ лимита глобального вида (400 + сводная), поэтому
+            // в глобальном скане не срабатывает — там всё мелкое уже собрано в «Мелкие файлы и прочее».
             var ordered = _slices.OrderByDescending(s => s.Node.Size).ToList();
-            const int cap = 200;
+            const int cap = 600;
             List<Slice> draw;
             if (ordered.Count > cap)
             {
                 draw = ordered.Take(cap).ToList();
                 long rest = ordered.Skip(cap).Sum(s => s.Node.Size);
+                int restCount = ordered.Count - cap;
                 if (rest > 0)
                     draw.Add(new Slice
                     {
-                        Node = new DirNode { Path = "", Name = "… прочее", Size = rest },
+                        Node = new DirNode { Path = "", Name = $"… ещё {restCount} мелких", Size = rest },
                         Aggregate = true,
                         Color = _aggColor
                     });
@@ -171,8 +185,9 @@ public sealed class TreemapView : FrameworkElement
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         double maxW = Math.Max(1, r.Width - (slice.IsFile ? 24 : 10));
 
-        var name = Text(slice.Node.Name, 12.5, _label, dpi, maxW);
-        var shadow = Text(slice.Node.Name, 12.5, _shadow, dpi, maxW);
+        var label = slice.Label ?? slice.Node.Name;
+        var name = Text(label, 12.5, _label, dpi, maxW);
+        var shadow = Text(label, 12.5, _shadow, dpi, maxW);
 
         dc.PushClip(new RectangleGeometry(r));
         double x = r.X + 6, y = r.Y + 4;

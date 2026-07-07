@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace SpaceSaver;
 
@@ -147,28 +148,47 @@ public static class Analysis
         public DirNode? Node;   // для папок — чтобы можно было перейти к ним
     }
 
-    public static List<ExplodeItem> GlobalExplode(DirNode root, long? minOverride = null)
+    /// <param name="resolveUnit">Опционально: по узлу-папке возвращает «красивое» имя, если это
+    /// известная игра/программа (по базе имён игр — по имени папки, или по реестру установленных
+    /// программ — по пути), иначе null. Такие папки не разворачиваем, показываем целиком под этим
+    /// именем (даже если внутри есть деление веса).</param>
+    public static List<ExplodeItem> GlobalExplode(DirNode root, long? minOverride = null, Func<DirNode, string?>? resolveUnit = null)
     {
         long total = root.Size <= 0 ? 1 : root.Size;
-        long minSize = minOverride ?? Math.Max(50L << 20, total / 3000); // ≥50 МБ или ~0.03% от всего
+        // Порог «значимой единицы»: масштабируется с размером диска, но НЕ выше 150 МБ —
+        // иначе на больших дисках (used/3000) отсекались бы настоящие небольшие игры/программы
+        // (~200–300 МБ). Снизу — 50 МБ. Показ ограничен ещё и лимитом в 400 плиток.
+        long minSize = minOverride ?? Math.Clamp(total / 3000, 50L << 20, 150L << 20);
         var items = new List<ExplodeItem>();
         foreach (var child in root.Children)
-            Explode(child, minSize, fromCollection: false, items);
+            Explode(child, minSize, fromCollection: false, items, resolveUnit);
         SurfaceBigFiles(root, minSize, items); // крупные файлы прямо в корне
         items.Sort((a, b) => b.Size.CompareTo(a.Size));
         return items;
     }
 
-    static void Explode(DirNode f, long minSize, bool fromCollection, List<ExplodeItem> items)
+    static void Explode(DirNode f, long minSize, bool fromCollection, List<ExplodeItem> items, Func<DirNode, string?>? resolveUnit)
     {
         var cur = f;
         while (true)
         {
+            // Известная игра/программа (по базе имён игр или по реестру программ) — не углубляемся,
+            // показываем целиком и с «правильным» именем, если оно есть.
+            if (resolveUnit != null && cur.Size >= minSize)
+            {
+                var dn = resolveUnit(cur);
+                if (!string.IsNullOrEmpty(dn))
+                {
+                    items.Add(new ExplodeItem { Path = cur.Path, Name = dn!, Size = cur.Size, IsFile = false, Node = cur });
+                    return;
+                }
+            }
+
             var sig = cur.Children.Where(c => c.Size >= minSize).OrderByDescending(c => c.Size).ToList();
 
             // Крупнейшая подпапка забирает почти весь вес (всё остальное < 15%) — папка
-            // проходная. Спускаемся дальше, СОХРАНЯЯ имя старшей папки f: если ниже так и не
-            // будет значимого деления веса, покажем именно f (BlackMythWukong, а не b1/Content).
+            // проходная. Спускаемся дальше, СОХРАНЯЯ имя старшей папки: если ниже так и не
+            // будет значимого деления веса, покажем именно её (BlackMythWukong, а не b1/Content).
             if (sig.Count >= 1 && cur.Size - sig[0].Size < cur.Size * 0.15)
             {
                 cur = sig[0];
@@ -178,25 +198,74 @@ public static class Analysis
             if (sig.Count >= 2)
             {
                 // коллекция (много сопоставимых подпапок): разворачиваем каждую + крупные файлы
-                foreach (var cf in sig) Explode(cf, minSize, fromCollection: true, items);
+                foreach (var cf in sig) Explode(cf, minSize, fromCollection: true, items, resolveUnit);
                 SurfaceBigFiles(cur, minSize, items);
             }
             else if (sig.Count == 1 && !fromCollection)
             {
                 // одна крупная подпапка + прочее на верхнем уровне: разворачиваем её и всплываем крупные файлы
-                Explode(sig[0], minSize, fromCollection: true, items);
+                Explode(sig[0], minSize, fromCollection: true, items, resolveUnit);
                 SurfaceBigFiles(cur, minSize, items);
             }
             else if (!fromCollection && sig.Count == 0 && IsFileHeavy(f, minSize))
             {
                 SurfaceBigFiles(f, minSize, items);   // downloads: всплывают файлы
             }
-            else
+            else if (f.Size >= minSize)
             {
-                // цельная «единица» — игра, программа, папка-мешок
+                // цельная «единица» — игра, программа, папка-мешок. Только если не мельче порога:
+                // прямые дети корня попадают сюда любого размера, и без этой проверки пустые/крошечные
+                // папки диска (Program Files, WindowsApps, Work…) просачивались бы в общий вид.
                 items.Add(new ExplodeItem { Path = f.Path, Name = f.Name, Size = f.Size, IsFile = false, Node = f });
             }
+            // иначе — мельче порога: уходит в остаток «прочее» (учитывается его суммой)
             return;
+        }
+    }
+
+    // ========================================================================
+    //  База нормализованных имён игр/программ (для распознавания папок).
+    // ========================================================================
+    public sealed class GameNameIndex
+    {
+        public const int MinLen = 8; // минимальная длина имени, чтобы избежать ложных совпадений
+
+        readonly HashSet<string> _names = new(StringComparer.Ordinal);
+        static readonly HashSet<string> Block = new(StringComparer.Ordinal)
+        {
+            "programfiles", "programfilesx86", "windows", "system", "system32", "users",
+            "documents", "downloads", "desktop", "pictures", "music", "videos", "appdata",
+            "temp", "steamlibrary", "steamapps", "recyclebin", "onedrive", "programdata"
+        };
+
+        public int Count => _names.Count;
+
+        /// <summary>Нижний регистр, только буквы и цифры (пробелы/спецсимволы убираются).</summary>
+        public static string Normalize(string s)
+        {
+            var sb = new StringBuilder(s.Length);
+            foreach (var ch in s)
+                if (char.IsLetterOrDigit(ch)) sb.Append(char.ToLowerInvariant(ch));
+            return sb.ToString();
+        }
+
+        public void AddNormalized(string norm)
+        {
+            if (norm.Length >= MinLen) _names.Add(norm);
+        }
+
+        public void Add(string rawName) => AddNormalized(Normalize(rawName));
+
+        /// <summary>Папка похожа на известную игру, если её имя начинается с известного
+        /// названия длиной ≥ MinLen (учитывает суффиксы вида «v1.0.0.10», «GOTY» и т.п.).</summary>
+        public bool Matches(string folderName)
+        {
+            var f = Normalize(folderName);
+            if (f.Length < MinLen || Block.Contains(f)) return false;
+            for (int len = f.Length; len >= MinLen; len--)
+                if (_names.Contains(f.Substring(0, len)))
+                    return true;
+            return false;
         }
     }
 
