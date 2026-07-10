@@ -3,6 +3,11 @@
 Автор: **Chernyshelly** · [github.com/ChernyshellyOfficial](https://github.com/ChernyshellyOfficial)
 
 Утилита для Windows: указываешь папку — она показывает, **куда девается место**.
+
+![NoahDisk — глобальный скан: игры и программы узнаются по именам](docs/screenshot.png)
+
+**⬇ [Скачать NoahDisk 1.0.0 — портативный `.exe`](https://github.com/ChernyshellyOfficial/NoahDisk/releases/latest)** — скачал и запустил, установка и рантайм не нужны.
+
 Две версии с общим движком сканирования (`Scanner.cs`):
 
 - **GUI** (`gui/`) — десктоп-приложение с treemap-визуализацией.
