@@ -213,7 +213,9 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Margin="16,16,16,8">
+                    <!-- MinHeight резервирует стабильную высоту панели деталей (под ~3 кнопки),
+                         чтобы при выборе разных элементов список ниже не «прыгал» (не съезжал из-под курсора). -->
+                    <StackPanel Grid.Row="0" Margin="16,16,16,8" MinHeight="224">
                         <TextBlock x:Name="DetailName" Foreground="{DynamicResource FgStrong}" FontSize="17"
                                    FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="DetailPath" Foreground="{DynamicResource FgDim}" FontSize="11.5"
