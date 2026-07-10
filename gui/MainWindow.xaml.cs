@@ -499,6 +499,10 @@ public partial class MainWindow : Window
     {
         _global = true;
         _globalRoot = root;
+        // Глобальный вид всегда «стоит» на корне скана — синхронизируем историю навигации,
+        // иначе после «← Глобальный вид» кнопка «↑» уводила бы в глубокую папку (стейл _history).
+        _history.Clear();
+        _history.Add(root);
 
         Func<DirNode, string?>? resolver = _globalUseDbs ? UnitResolver() : null;
         var items = Analysis.GlobalExplode(root, null, resolver);
@@ -1060,6 +1064,10 @@ public partial class MainWindow : Window
 
     void ShowVisualReport(DirNode folder, DirNode vr, string plainText)
     {
+        // Снимок записей на момент открытия — окно немодальное и перестраивается при смене темы,
+        // а folder/vr/текст зафиксированы; без снимка перерисовка брала бы уже другой (текущий) вид.
+        var repEntries = _entries.ToList();
+
         UIElement Build()
         {
         Brush Br(string key) => (Brush)Application.Current.Resources[key];
@@ -1067,12 +1075,12 @@ public partial class MainWindow : Window
               DIM = Br("FgDim"), TRACK = Br("Border"), ACC = Br("CrumbFg");
 
         long total = folder.Size <= 0 ? 1 : folder.Size;
-        long max = _entries.Count > 0 ? Math.Max(1, _entries.Max(e => e.Node.Size)) : 1;
+        long max = repEntries.Count > 0 ? Math.Max(1, repEntries.Max(e => e.Node.Size)) : 1;
 
         // цвета как в treemap (чтобы отчёт и плитки совпадали)
         var colorOf = new Dictionary<DirNode, Color>();
         int ci = 0;
-        foreach (var en in _entries)
+        foreach (var en in repEntries)
             colorOf[en.Node] = en.Kind switch
             {
                 Kind.File or Kind.FilesTail => _dark ? Hex("#5E6E8C") : Hex("#A9B6CC"),
@@ -1197,7 +1205,7 @@ public partial class MainWindow : Window
             ("Крупные (10 – 100 ГБ)", 10 * GB, 100 * GB),
             ("Средние (1 – 10 ГБ)", GB, 10 * GB),
         };
-        var folders = _entries.Where(e => e.Kind is Kind.Folder or Kind.Promoted or Kind.Remainder).ToList();
+        var folders = repEntries.Where(e => e.Kind is Kind.Folder or Kind.Promoted or Kind.Remainder).ToList();
 
         foreach (var (label, min, mx) in tiers)
             AddGroup(label, folders.Where(e => e.Node.Size >= min && e.Node.Size < mx).ToList());

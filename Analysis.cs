@@ -63,37 +63,58 @@ public static class Analysis
         public bool ReachedTarget;
     }
 
-    /// <summary>Вариант «минимум папок»: 1–2 папки, чья сумма размеров ближе всего к need.</summary>
+    /// <summary>Вариант «минимум элементов»: 1–2 элемента, которые ДОСТИГАЮТ цели с наименьшим
+    /// перелётом (при равенстве — меньше элементов). Если ≤2 элементами цель не достижима —
+    /// лучший по объёму вариант из 1–2 самых крупных.</summary>
     public static CleanupPlan PlanClosestFew(List<DirNode> cands, long need)
     {
         var plan = new CleanupPlan();
         if (cands.Count == 0) return plan;
 
-        DirNode? best1 = null; long diff1 = long.MaxValue;
-        foreach (var c in cands)
-        {
-            long d = Math.Abs(c.Size - need);
-            if (d < diff1) { diff1 = d; best1 = c; }
-        }
-
         var asc = cands.OrderBy(c => c.Size).ToList();
-        DirNode? a = null, b = null; long diff2 = long.MaxValue, sum2 = 0;
-        int i = 0, j = asc.Count - 1;
-        while (i < j)
+
+        // 1 элемент, достигающий цели: наименьший c.Size >= need (минимальный перелёт для одного).
+        DirNode? single = null;
+        foreach (var c in asc) if (c.Size >= need) { single = c; break; }
+
+        // 2 элемента с суммой >= need и минимальной суммой (два указателя по отсортированному).
+        DirNode? pairA = null, pairB = null; long pairSum = 0;
         {
-            long sum = asc[i].Size + asc[j].Size;
-            long d = Math.Abs(sum - need);
-            if (d < diff2) { diff2 = d; a = asc[j]; b = asc[i]; sum2 = sum; }
-            if (sum < need) i++; else j--;
+            int i = 0, j = asc.Count - 1; long best = long.MaxValue;
+            while (i < j)
+            {
+                long sum = asc[i].Size + asc[j].Size;
+                if (sum >= need) { if (sum < best) { best = sum; pairA = asc[j]; pairB = asc[i]; pairSum = sum; } j--; }
+                else i++;
+            }
         }
 
-        if (a != null && b != null && diff2 < diff1)
+        if (single != null || pairA != null)
         {
-            plan.Folders.Add(a); plan.Folders.Add(b); plan.Freed = sum2;
+            // Оба достигают — берём с меньшим перелётом; при равном перелёте предпочитаем 1 элемент.
+            long singleOver = single != null ? single.Size - need : long.MaxValue;
+            long pairOver = pairA != null ? pairSum - need : long.MaxValue;
+            if (single != null && singleOver <= pairOver)
+            {
+                plan.Folders.Add(single); plan.Freed = single.Size;
+            }
+            else
+            {
+                plan.Folders.Add(pairA!); plan.Folders.Add(pairB!); plan.Freed = pairSum;
+            }
         }
-        else if (best1 != null)
+        else
         {
-            plan.Folders.Add(best1); plan.Freed = best1.Size;
+            // Цель не достижима 1–2 элементами — берём то, что освободит больше (1 или пара крупнейших).
+            long two = asc.Count >= 2 ? asc[^1].Size + asc[^2].Size : asc[^1].Size;
+            if (asc.Count >= 2 && two > asc[^1].Size)
+            {
+                plan.Folders.Add(asc[^1]); plan.Folders.Add(asc[^2]); plan.Freed = two;
+            }
+            else
+            {
+                plan.Folders.Add(asc[^1]); plan.Freed = asc[^1].Size;
+            }
         }
         plan.ReachedTarget = plan.Freed >= need;
         return plan;

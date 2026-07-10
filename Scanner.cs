@@ -64,15 +64,27 @@ public static class Scanner
         return root;
     }
 
-    static DirNode ScanRecursive(DirectoryInfo dir, ScanStats stats, bool collectFiles)
+    // Предел глубины рекурсии — защита от StackOverflowException (он неперехватываемый и
+    // роняет процесс) на патологически глубоких деревьях (напр. при включённой поддержке
+    // длинных путей). 512 уровней заведомо больше любой реальной структуры папок и умещается
+    // в стек потока (~1 МБ). Глубже — не спускаемся, недосчитанное помечаем ошибкой.
+    const int MaxDepth = 512;
+
+    static DirNode ScanRecursive(DirectoryInfo dir, ScanStats stats, bool collectFiles, int depth = 0)
     {
         var node = new DirNode { Path = dir.FullName, Name = dir.Name };
         var subdirs = new List<DirectoryInfo>();
         EnumerateInto(dir, node, subdirs, stats, collectFiles);
 
+        if (depth >= MaxDepth)
+        {
+            if (subdirs.Count > 0) stats.AddError();   // слишком глубоко — дальше не идём
+            return node;
+        }
+
         foreach (var sd in subdirs)
         {
-            var child = ScanRecursive(sd, stats, collectFiles);
+            var child = ScanRecursive(sd, stats, collectFiles, depth + 1);
             child.Parent = node;
             node.Children.Add(child);
             node.Size += child.Size;

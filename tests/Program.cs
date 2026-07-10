@@ -81,6 +81,15 @@ Check("closestFew(120) → пара 100+20", c3.Folders.Count == 2 && c3.Freed =
 var c4 = Analysis.PlanClosestFew(new List<DirNode>(), 10 * GB);
 Check("closestFew(пусто) → пусто", c4.Folders.Count == 0 && c4.Freed == 0);
 
+// регресс: если крупный элемент один достигает цели — не возвращать мелкий недобор
+var cUnder = new List<DirNode> { F("Big", 1000 * GB), F("Tiny", 2 * GB) };
+var c5 = Analysis.PlanClosestFew(cUnder, 100 * GB);
+Check("closestFew: крупный достигает цели, а не мелкий-недобор", c5.Folders.Count == 1 && c5.Folders[0].Name == "Big" && c5.ReachedTarget);
+
+// цель недостижима ≤2 элементами → лучший по объёму, ReachedTarget=false
+var c6 = Analysis.PlanClosestFew(cUnder, 5000 * GB);
+Check("closestFew: цель недостижима → пара крупнейших, не достигнуто", c6.Freed == 1002 * GB && !c6.ReachedTarget);
+
 var g1 = Analysis.PlanGreedyCapped(cands, 40 * GB, 25 * GB);
 Check("greedy(need40,cap25) → {20,15,10}=45", g1.Folders.Count == 3 && g1.Freed == 45 * GB && g1.ReachedTarget);
 
