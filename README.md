@@ -2,7 +2,7 @@
 
 Автор: **Chernyshelly** · [github.com/ChernyshellyOfficial](https://github.com/ChernyshellyOfficial)
 
-Утилита для Windows: указываешь папку — она показывает, **куда девается место**.
+Утилита для Windows: указываешь папку — видишь, **куда девается место**.
 
 ![NoahDisk — глобальный скан: игры и программы узнаются по именам](docs/screenshot.png)
 
