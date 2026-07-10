@@ -63,13 +63,18 @@ public partial class MainWindow : Window
         Treemap.FileActivated += node => OpenInExplorerSelect(node.Path);
         Treemap.ContextRequested += OnTreemapContext;
 
+        // Настройки прошлого запуска: тема и последняя папка.
+        Settings.Load();
+        _dark = Settings.Dark;
         ApplyTheme();
-        PathBox.Text = DefaultPath();
+        PathBox.Text = !string.IsNullOrWhiteSpace(Settings.LastPath) && Directory.Exists(Settings.LastPath)
+            ? Settings.LastPath! : DefaultPath();
         Status.Text = "Выбери папку и нажми «Обзор…» — скан начнётся сразу. Можно перетащить папку в окно.";
 
         // Прогреваем базы (имена игр + программ + реестр) в фоне, чтобы глобальный скан не подтормаживал.
         Task.Run(() => { GameDb.Ensure(); ProgramDb.Ensure(); _ = InstalledPrograms.Count; });
 
+        Closing += (_, _) => Settings.Save();
         Loaded += OnLoaded;
     }
 
@@ -104,6 +109,7 @@ public partial class MainWindow : Window
     void OnToggleTheme(object sender, RoutedEventArgs e)
     {
         _dark = !_dark;
+        Settings.Dark = _dark; Settings.Save();
         ApplyTheme();
         ApplyDarkTitleBar(this, _dark);
         foreach (var (w, retheme) in _childWindows.ToList())
@@ -127,6 +133,7 @@ public partial class MainWindow : Window
             Set("BtnBg", "#222732"); Set("BtnHover", "#2C3340"); Set("BtnPressed", "#39414F");
             Set("Border", "#222732"); Set("RowHover", "#1B202A"); Set("RowSel", "#243049");
             Set("CrumbFg", "#9CC4FF"); Set("CrumbHover", "#1C2230");
+            Set("ScrollThumb", "#39414F"); Set("ScrollThumbHover", "#565F73");
             ThemeButton.Content = "Светлая тема";
         }
         else
@@ -137,6 +144,7 @@ public partial class MainWindow : Window
             Set("BtnBg", "#E9ECF1"); Set("BtnHover", "#DFE3EA"); Set("BtnPressed", "#D2D7E0");
             Set("Border", "#E2E5EA"); Set("RowHover", "#EEF1F6"); Set("RowSel", "#DCE7FF");
             Set("CrumbFg", "#2F6FED"); Set("CrumbHover", "#ECF1FB");
+            Set("ScrollThumb", "#C6CBD4"); Set("ScrollThumbHover", "#AAB1BD");
             ThemeButton.Content = "Тёмная тема";
         }
         Treemap.SetTheme(!_dark);
@@ -281,6 +289,7 @@ public partial class MainWindow : Window
             var stats = _stats;
             var root = await Task.Run(() => Scanner.ScanRoot(dir, stats, collectFiles: true));
             _sw.Stop();
+            Settings.LastPath = path; Settings.Save();   // запоминаем последнюю успешно отсканированную папку
 
             _history.Clear();
             _history.Add(root);
