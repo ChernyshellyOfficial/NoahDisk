@@ -38,7 +38,8 @@ public partial class MainWindow : Window
     bool _dark = true;
     bool _syncSel;                                                 // защита от зацикливания синхронизации выбора treemap↔список
     bool _global;                                                  // включён «глобальный вид»
-    DirNode? _globalRoot;                                          // корень глобального скана
+    DirNode? _globalRoot;                                          // корень глобального скана (дерево кешируется в памяти)
+    bool _globalUseDbs = true;                                     // использовать базы имён (реестр/Steam/Chocolatey) в глобальном скане
     bool _pendingGlobal;                                           // после скана войти в глобальный вид
     readonly List<(Window Window, Action Retheme)> _childWindows = new(); // открытые окна Отчёт/Что удалить
     const string GithubUrl = "https://github.com/ChernyshellyOfficial";
@@ -192,15 +193,64 @@ public partial class MainWindow : Window
             Status.Text = $"Папка не найдена: {path}";
             return;
         }
-        var r = MessageBox.Show(
-            $"Глобальный скан полностью просканирует «{path}» и разложит всё значимое — игры, программы, тяжёлые файлы — в один общий вид, куда бы глубоко они ни лежали.\n\n" +
-            "Известные игры (по встроенной базе названий) показываются целиком, а не дробятся на внутренние папки.\n\n" +
-            "Для целого диска это может занять заметно больше времени, чем обычный просмотр. Продолжить?",
-            "Глобальный скан", MessageBoxButton.YesNo, MessageBoxImage.Information);
-        if (r != MessageBoxResult.Yes) return;
+        if (!ConfirmGlobalScan(path)) return;
 
         _pendingGlobal = true;
         await StartScan(path);
+    }
+
+    // Диалог подтверждения глобального скана с галочкой «узнавать по базам имён».
+    bool ConfirmGlobalScan(string path)
+    {
+        Brush Br(string k) => (Brush)Application.Current.Resources[k];
+
+        var panel = new StackPanel { Margin = new Thickness(22) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Глобальный скан", Foreground = Br("FgStrong"),
+            FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"Полностью просканирует «{path}» и разложит всё значимое — игры, программы, тяжёлые файлы — " +
+                   "в один общий вид, как бы глубоко они ни лежали.\n\nДля целого диска это может занять заметно больше времени, чем обычный просмотр.",
+            Foreground = Br("Fg"), FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16)
+        });
+
+        var chk = new CheckBox
+        {
+            Content = "Узнавать игры и программы по базам имён (реестр, Steam, Chocolatey)",
+            IsChecked = _globalUseDbs,
+            Style = (Style)Application.Current.FindResource("ThemedCheckBox")
+        };
+        panel.Children.Add(chk);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Сними галочку, если в реестре что-то помечено неверно — тогда раскладка будет чисто по структуре папок.",
+            Foreground = Br("FgDim"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(26, 4, 0, 18)
+        });
+
+        var win = new Window
+        {
+            Title = "Глобальный скан", Owner = this, Icon = Icon, Width = 500,
+            SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Br("WinBg")
+        };
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var cancel = new Button { Content = "Отмена", Style = (Style)Application.Current.FindResource("DialogButton"), MinWidth = 90, Margin = new Thickness(0, 0, 8, 0) };
+        var ok = new Button { Content = "Сканировать", Style = (Style)Application.Current.FindResource("DialogButton"), MinWidth = 120 };
+        cancel.Click += (_, _) => win.DialogResult = false;
+        ok.Click += (_, _) => win.DialogResult = true;
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        panel.Children.Add(buttons);
+
+        win.Content = panel;
+        win.SourceInitialized += (_, _) => ApplyDarkTitleBar(win, _dark);
+        bool proceed = win.ShowDialog() == true;
+        if (proceed) _globalUseDbs = chk.IsChecked == true;
+        return proceed;
     }
 
     async Task StartScan(string? path, List<string>? restoreNav = null)
@@ -216,6 +266,7 @@ public partial class MainWindow : Window
         }
 
         PathBox.Text = path;
+        _globalRoot = null;   // прежний кеш глобального скана больше не актуален (для глобального его пере-выставит EnterGlobalView)
         _scanning = true;
         SetControlsEnabled(false);
         Progress.Visibility = Visibility.Visible;
@@ -449,7 +500,8 @@ public partial class MainWindow : Window
         _global = true;
         _globalRoot = root;
 
-        var items = Analysis.GlobalExplode(root, null, UnitResolver());
+        Func<DirNode, string?>? resolver = _globalUseDbs ? UnitResolver() : null;
+        var items = Analysis.GlobalExplode(root, null, resolver);
         _entries = BuildGlobalEntries(root, items);
         RenderEntries();
         BuildGlobalBreadcrumb(root);
@@ -459,9 +511,10 @@ public partial class MainWindow : Window
 
         int folders = items.Count(i => !i.IsFile);
         int fileItems = items.Count(i => i.IsFile);
-        string db = GameDb.Ensure().Count > 0 ? $" · база игр: {Format.Count(GameDb.Ensure().Count)}" : "";
-        string pr = InstalledPrograms.Count > 0 ? $" · программ: {Format.Count(InstalledPrograms.Count)}" : "";
-        Status.Text = $"Глобальный вид: {Format.Count(folders)} папок-единиц + {Format.Count(fileItems)} тяжёлых файлов в {Format.Size(root.Size)}{db}{pr}";
+        string db = _globalUseDbs && GameDb.Ensure().Count > 0 ? $" · база игр: {Format.Count(GameDb.Ensure().Count)}" : "";
+        string pr = _globalUseDbs && InstalledPrograms.Count > 0 ? $" · программ: {Format.Count(InstalledPrograms.Count)}" : "";
+        string noDb = _globalUseDbs ? "" : " · базы имён выкл.";
+        Status.Text = $"Глобальный вид: {Format.Count(folders)} папок-единиц + {Format.Count(fileItems)} тяжёлых файлов в {Format.Size(root.Size)}{db}{pr}{noDb}";
     }
 
     List<Entry> BuildGlobalEntries(DirNode root, List<Analysis.ExplodeItem> items)
@@ -545,17 +598,20 @@ public partial class MainWindow : Window
         }
 
         long lowerMin = Math.Max(4L << 20, root.Size / 20000);   // порог мельче основного
-        var rest = Analysis.GlobalExplode(root, lowerMin, UnitResolver())
+        Func<DirNode, string?>? resolver = _globalUseDbs ? UnitResolver() : null;
+        var rest = Analysis.GlobalExplode(root, lowerMin, resolver)
             .Where(it => !UnderSurfaced(it.Path))
             .OrderByDescending(it => it.Size)
             .ToList();
 
-        ShowItemsWindow("Мелкие файлы и прочее — что внутри", root, rest);
+        long tileTotal = _entries.Where(e => e.Kind is Kind.FilesTail).Sum(e => e.Node.Size);
+        ShowItemsWindow("Мелкие файлы и прочее — что внутри", root, rest, tileTotal, lowerMin);
     }
 
-    void ShowItemsWindow(string title, DirNode root, List<Analysis.ExplodeItem> items)
+    void ShowItemsWindow(string title, DirNode root, List<Analysis.ExplodeItem> items, long aggregateTotal = 0, long tailThreshold = 0)
     {
         long total = items.Sum(i => i.Size);
+        long tail = aggregateTotal > total ? aggregateTotal - total : 0; // не поместившийся «хвост» совсем мелких
         long maxItem = items.Count > 0 ? items[0].Size : 1;
         if (maxItem < 1) maxItem = 1;
         string Rel(string p) => p.Length > root.Path.Length ? Path.GetRelativePath(root.Path, p) : p;
@@ -566,6 +622,8 @@ public partial class MainWindow : Window
         plain.AppendLine(new string('─', 56));
         foreach (var it in items.Take(500))
             plain.AppendLine($"  {Format.Size(it.Size),12}   {(it.IsFile ? "" : "[папка] ")}{Rel(it.Path)}");
+        if (tail > 0)
+            plain.AppendLine($"  {Format.Size(tail),12}   (множество файлов мельче {Format.Size(tailThreshold)} — поштучно не показаны)");
 
         UIElement Build()
         {
@@ -574,11 +632,14 @@ public partial class MainWindow : Window
 
             var panel = new StackPanel { Margin = new Thickness(22) };
             panel.Children.Add(new TextBlock { Text = title, Foreground = FGS, FontSize = 18, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
-            panel.Children.Add(new TextBlock { Text = $"{Format.Count(items.Count)} элементов  ·  {Format.Size(total)}", Foreground = FG, FontSize = 13.5, Margin = new Thickness(0, 6, 0, 12) });
+            string head = aggregateTotal > total
+                ? $"{Format.Count(items.Count)} элементов  ·  показано поштучно {Format.Size(total)} из {Format.Size(aggregateTotal)}"
+                : $"{Format.Count(items.Count)} элементов  ·  {Format.Size(total)}";
+            panel.Children.Add(new TextBlock { Text = head, Foreground = FG, FontSize = 13.5, Margin = new Thickness(0, 6, 0, 12) });
 
             if (items.Count == 0)
             {
-                panel.Children.Add(new TextBlock { Text = "Здесь не осталось ничего заметного — только совсем мелочь.", Foreground = DIM, FontSize = 13 });
+                panel.Children.Add(new TextBlock { Text = "Здесь нет ничего крупного для показа поштучно — только совсем мелкие файлы.", Foreground = DIM, FontSize = 13 });
             }
             else
             {
@@ -619,6 +680,17 @@ public partial class MainWindow : Window
                 if (items.Count > cap)
                     panel.Children.Add(new TextBlock { Text = $"… и ещё {Format.Count(items.Count - cap)} (показаны крупнейшие {cap})", Foreground = DIM, FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 6, 0, 0) });
             }
+
+            // «Хвост»: разница между размером сводной плитки и суммой показанного — это масса
+            // совсем мелких файлов (мельче порога), которых слишком много для поштучного списка.
+            if (tail > 0)
+                panel.Children.Add(new TextBlock
+                {
+                    Text = $"+ {Format.Size(tail)} — это множество файлов мельче {Format.Size(tailThreshold)}. " +
+                           "Их слишком много, чтобы перечислять поштучно, — это и есть основная часть «прочего».",
+                    Foreground = DIM, FontSize = 12, FontStyle = FontStyles.Italic,
+                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 2)
+                });
 
             var sv = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Background = Br("WinBg") };
             var copy = new Button { Content = "Копировать текст", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(12), Style = (Style)Application.Current.FindResource("DialogButton") };
@@ -816,6 +888,21 @@ public partial class MainWindow : Window
     void BuildBreadcrumb()
     {
         Breadcrumb.Items.Clear();
+
+        // Если пришли из глобального скана (дерево ещё в памяти) — кнопка вернуться в него без пере-скана.
+        if (_globalRoot != null && _history.Count > 0 && ReferenceEquals(_history[0], _globalRoot))
+        {
+            var g = new Button { Content = "← Глобальный вид", Style = (Style)FindResource("CrumbButton") };
+            g.Click += (_, _) => { if (_globalRoot != null) EnterGlobalView(_globalRoot); };
+            Breadcrumb.Items.Add(g);
+            Breadcrumb.Items.Add(new TextBlock
+            {
+                Text = "   ·   ",
+                Foreground = (Brush)Application.Current.Resources["FgDim"],
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+
         for (int i = 0; i < _history.Count; i++)
         {
             if (i > 0)
@@ -1386,8 +1473,10 @@ public partial class MainWindow : Window
 
     void ShowCleanupWindow(DirNode folder)
     {
+        // Кандидаты на удаление — папки И файлы (в т.ч. тяжёлые файлы из глобального скана).
+        // Служебные плитки (остаток развёртки, «Мелкие файлы и прочее») не берём.
         var candidates = _entries
-            .Where(en => en.Kind is Kind.Folder or Kind.Promoted)
+            .Where(en => en.Kind is Kind.Folder or Kind.Promoted or Kind.File)
             .Select(en => en.Node)
             .Where(n => n.Size > 0 && !string.IsNullOrEmpty(n.Path))
             .OrderByDescending(n => n.Size)
@@ -1456,7 +1545,7 @@ public partial class MainWindow : Window
             var sz = new TextBlock { Text = Format.Size(f.Size), Foreground = FG, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
             Grid.SetColumn(sz, 1); g.Children.Add(sz);
 
-            var open = new TextBlock { Text = "Открыть в проводнике", Foreground = ACC, FontSize = 11.5, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), ToolTip = "Открыть проводник и выделить эту папку" };
+            var open = new TextBlock { Text = "Открыть в проводнике", Foreground = ACC, FontSize = 11.5, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), ToolTip = "Открыть проводник и выделить этот элемент" };
             open.MouseLeftButtonUp += (_, _) => OpenInExplorerSelect(f.Path);
             Grid.SetColumn(open, 2); g.Children.Add(open);
 
@@ -1484,12 +1573,12 @@ public partial class MainWindow : Window
 
             if (plan.Folders.Count == 0)
             {
-                inner.Children.Add(new TextBlock { Text = "Подходящих папок такого размера здесь нет.", Foreground = DIM, FontSize = 12, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 8, 0, 0) });
+                inner.Children.Add(new TextBlock { Text = "Подходящих элементов такого размера здесь нет.", Foreground = DIM, FontSize = 12, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 8, 0, 0) });
             }
             else
             {
                 var summary = new TextBlock { FontSize = 13, Margin = new Thickness(0, 8, 0, 2), TextWrapping = TextWrapping.Wrap };
-                summary.Inlines.Add(new System.Windows.Documents.Run($"Удалить {Format.Count(plan.Folders.Count)} {Format.Plural(plan.Folders.Count, "папку", "папки", "папок")}  ·  освободит {Format.Size(plan.Freed)}") { Foreground = FG });
+                summary.Inlines.Add(new System.Windows.Documents.Run($"Удалить {Format.Count(plan.Folders.Count)} {Format.Plural(plan.Folders.Count, "элемент", "элемента", "элементов")}  ·  освободит {Format.Size(plan.Freed)}") { Foreground = FG });
                 if (free.HasValue)
                     summary.Inlines.Add(new System.Windows.Documents.Run($"  ·  станет свободно ≈ {Format.Size(free.Value + plan.Freed)}") { Foreground = DIM });
                 summary.Inlines.Add(new System.Windows.Documents.Run(plan.ReachedTarget ? "   ✓ цель достигнута" : $"   не хватает {Format.Size(Math.Max(0, need - plan.Freed))}") { Foreground = plan.ReachedTarget ? OK : DIM });
@@ -1501,10 +1590,10 @@ public partial class MainWindow : Window
                 {
                     long restSum = plan.Folders.Skip(cap).Sum(f => f.Size);
                     int more = plan.Folders.Count - cap;
-                    inner.Children.Add(new TextBlock { Text = $"… ещё {Format.Count(more)} {Format.Plural(more, "папка", "папки", "папок")} (суммарно {Format.Size(restSum)})", Foreground = DIM, FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 4, 0, 0) });
+                    inner.Children.Add(new TextBlock { Text = $"… ещё {Format.Count(more)} {Format.Plural(more, "элемент", "элемента", "элементов")} (суммарно {Format.Size(restSum)})", Foreground = DIM, FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 4, 0, 0) });
                 }
 
-                var openAll = new TextBlock { Text = $"Открыть все в проводнике ({plan.Folders.Count})", Foreground = ACC, FontSize = 12, FontWeight = FontWeights.SemiBold, Cursor = Cursors.Hand, Margin = new Thickness(0, 12, 0, 0), ToolTip = "Откроет окно проводника для каждой папки плана" };
+                var openAll = new TextBlock { Text = $"Открыть все в проводнике ({plan.Folders.Count})", Foreground = ACC, FontSize = 12, FontWeight = FontWeights.SemiBold, Cursor = Cursors.Hand, Margin = new Thickness(0, 12, 0, 0), ToolTip = "Откроет окно проводника для каждого элемента плана" };
                 openAll.MouseLeftButtonUp += (_, _) => OpenAll(plan.Folders);
                 inner.Children.Add(openAll);
             }
@@ -1556,15 +1645,15 @@ public partial class MainWindow : Window
             }
             if (candidates.Count == 0)
             {
-                results.Children.Add(new TextBlock { Text = "В этой папке нет папок-кандидатов для удаления.", Foreground = DIM, FontSize = 13 });
+                results.Children.Add(new TextBlock { Text = "Здесь нет подходящих элементов для удаления.", Foreground = DIM, FontSize = 13 });
                 return;
             }
             if (need > totalCand)
-                results.Children.Add(new TextBlock { Text = $"Запрошено больше, чем занимают все папки здесь ({Format.Size(totalCand)}). Даже удалив всё, столько не освободить.", Foreground = DIM, FontSize = 12, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
+                results.Children.Add(new TextBlock { Text = $"Запрошено больше, чем занимают все элементы здесь ({Format.Size(totalCand)}). Даже удалив всё, столько не освободить.", Foreground = DIM, FontSize = 12, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
 
-            results.Children.Add(Card("Вариант 1 — минимум папок", "одна-две папки, чтобы закрыть цель сразу", Analysis.PlanClosestFew(candidates, need), need));
-            results.Children.Add(Card("Вариант 2 — несколько средних", "папки среднего размера", Analysis.PlanGreedyCapped(candidates, need, Math.Max(1, need / 2)), need));
-            results.Children.Add(Card("Вариант 3 — много мелких", "много небольших папок, не трогая крупные", Analysis.PlanGreedyCapped(candidates, need, Math.Max(1, need / 15)), need));
+            results.Children.Add(Card("Вариант 1 — минимум элементов", "один-два самых крупных, чтобы закрыть цель сразу", Analysis.PlanClosestFew(candidates, need), need));
+            results.Children.Add(Card("Вариант 2 — несколько средних", "элементы среднего размера", Analysis.PlanGreedyCapped(candidates, need, Math.Max(1, need / 2)), need));
+            results.Children.Add(Card("Вариант 3 — много мелких", "много небольших, не трогая крупные", Analysis.PlanGreedyCapped(candidates, need, Math.Max(1, need / 15)), need));
         }
 
         go.Click += (_, _) => Recompute();
@@ -1611,7 +1700,7 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    // Открывает проводник и выделяет папку (удобно, чтобы сразу её удалить).
+    // Открывает проводник и выделяет папку или файл (удобно, чтобы сразу удалить).
     static void OpenInExplorerSelect(string path)
     {
         try
