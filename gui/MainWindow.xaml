@@ -271,6 +271,11 @@
                            Foreground="{DynamicResource FgDim}" FontSize="12" VerticalAlignment="Center"
                            Cursor="Hand" Margin="14,0,0,0" MouseLeftButtonUp="OnCredit"
                            ToolTip="О программе · github.com/ChernyshellyOfficial"/>
+                <!-- Появляется, только если проверка обновлений нашла версию новее. -->
+                <TextBlock DockPanel.Dock="Right" x:Name="UpdateLink" Visibility="Collapsed"
+                           Foreground="{DynamicResource Accent}" FontSize="12" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Cursor="Hand" Margin="14,0,0,0"
+                           MouseLeftButtonUp="OnUpdateLink"/>
                 <ProgressBar DockPanel.Dock="Right" x:Name="Progress" Width="170" Height="8"
                              Background="{DynamicResource InputBg}" Foreground="{DynamicResource Accent}"
                              BorderThickness="0" IsIndeterminate="False" Visibility="Collapsed" VerticalAlignment="Center"/>

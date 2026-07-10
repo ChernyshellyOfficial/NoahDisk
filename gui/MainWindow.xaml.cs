@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     bool _pendingGlobal;                                           // после скана войти в глобальный вид
     readonly List<(Window Window, Action Retheme)> _childWindows = new(); // открытые окна Отчёт/Что удалить
     const string GithubUrl = "https://github.com/ChernyshellyOfficial";
+    string? _updateUrl;                                            // ссылка на релиз, если найдено обновление
 
     // Иконки для списка: папка и документ (в системе координат ~14×14).
     static readonly Geometry FolderGlyphGeo = FrozenGeo("M1,3 L5,3 L6.5,5 L13,5 L13,12 L1,12 Z");
@@ -74,6 +75,9 @@ public partial class MainWindow : Window
         // Прогреваем базы (имена игр + программ + реестр) в фоне, чтобы глобальный скан не подтормаживал.
         Task.Run(() => { GameDb.Ensure(); ProgramDb.Ensure(); _ = InstalledPrograms.Count; });
 
+        // Тихая проверка обновлений через GitHub Releases — в фоне, старт не блокирует.
+        _ = CheckForUpdatesAsync();
+
         Closing += (_, _) => Settings.Save();
         Loaded += OnLoaded;
     }
@@ -92,6 +96,32 @@ public partial class MainWindow : Window
                 break;
             }
         }
+    }
+
+    // Тихо спрашиваем GitHub Releases в фоне; если версия новее — показываем ненавязчивую
+    // ссылку в статус-баре. Не критично: любая ошибка просто ничего не показывает.
+    async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var r = await UpdateCheck.CheckAsync();
+            if (r == null) return;
+            void Show()
+            {
+                _updateUrl = r.Url;
+                UpdateLink.Text = $"● Доступна версия {r.Version}";
+                UpdateLink.ToolTip = "Открыть страницу загрузки";
+                UpdateLink.Visibility = Visibility.Visible;
+            }
+            if (Dispatcher.CheckAccess()) Show();
+            else _ = Dispatcher.BeginInvoke(Show);
+        }
+        catch { /* проверка обновлений не критична */ }
+    }
+
+    void OnUpdateLink(object sender, MouseButtonEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(_updateUrl)) OpenUrl(_updateUrl);
     }
 
     static string DefaultPath()
