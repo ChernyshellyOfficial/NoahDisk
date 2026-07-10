@@ -10,9 +10,9 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
-using SpaceSaver;
+using NoahDisk;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 public partial class MainWindow : Window
 {
@@ -80,7 +80,7 @@ public partial class MainWindow : Window
 
     async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Путь можно передать аргументом: SpaceSaver.exe "D:\"
+        // Путь можно передать аргументом: NoahDisk.exe "D:\"
         var args = Environment.GetCommandLineArgs();
         for (int i = 1; i < args.Length; i++)
         {
@@ -1755,7 +1755,7 @@ public partial class MainWindow : Window
             var header = new StackPanel { Orientation = Orientation.Horizontal };
             header.Children.Add(new Image { Source = Icon, Width = 56, Height = 56, VerticalAlignment = VerticalAlignment.Center });
             var titleCol = new StackPanel { Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            titleCol.Children.Add(new TextBlock { Text = "SpaceSaver", Foreground = FGS, FontSize = 22, FontWeight = FontWeights.SemiBold });
+            titleCol.Children.Add(new TextBlock { Text = "NoahDisk", Foreground = FGS, FontSize = 22, FontWeight = FontWeights.SemiBold });
             titleCol.Children.Add(new TextBlock { Text = "Анализатор занятого места на диске", Foreground = DIM, FontSize = 12, Margin = new Thickness(0, 2, 0, 0) });
             header.Children.Add(titleCol);
             panel.Children.Add(header);

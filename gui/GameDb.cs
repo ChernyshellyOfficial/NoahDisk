@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using SpaceSaver;
+using NoahDisk;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 // Встроенная база имён игр — снимок списка приложений Steam. Нужна, чтобы в глобальном
 // скане распознавать папки-игры (например «Metal Gear Rising - Revengeance») и показывать

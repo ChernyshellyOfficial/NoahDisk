@@ -6,8 +6,8 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>SpaceSaver</AssemblyName>
-    <RootNamespace>SpaceSaver.Gui</RootNamespace>
+    <AssemblyName>NoahDisk</AssemblyName>
+    <RootNamespace>NoahDisk.Gui</RootNamespace>
     <!-- ВАЖНО: НЕ включать InvariantGlobalization — в WPF это ломает культуру en-US
          в шаблонах (MultiBinding у MenuItem), и контекстное меню падает с
          "Cannot find non-neutral culture related to 'en-us'". -->
@@ -17,9 +17,9 @@
     <!-- Авторство (видно в Свойствах exe → Подробно). -->
     <Authors>Chernyshelly</Authors>
     <Company>Chernyshelly</Company>
-    <Product>SpaceSaver</Product>
+    <Product>NoahDisk</Product>
     <Copyright>© Chernyshelly</Copyright>
-    <Description>SpaceSaver — анализатор занятого места на диске. github.com/ChernyshellyOfficial</Description>
+    <Description>NoahDisk — анализатор занятого места на диске. github.com/ChernyshellyOfficial</Description>
     <RepositoryUrl>https://github.com/ChernyshellyOfficial</RepositoryUrl>
     <PackageProjectUrl>https://github.com/ChernyshellyOfficial</PackageProjectUrl>
   </PropertyGroup>

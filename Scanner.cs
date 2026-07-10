@@ -6,7 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SpaceSaver;
+namespace NoahDisk;
 
 // ============================================================================
 //  Общий код сканирования — используется и консолью, и GUI.

@@ -8,5 +8,5 @@ dist-gui-portable/
 *.user
 
 # runtime / temp
-SpaceSaver-crash.log
+NoahDisk-crash.log
 uitest-result.txt

@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using SpaceSaver;
+using NoahDisk;
 
 // ============================================================================
-//  SpaceSaver (консоль) — кто съел место на диске.
+//  NoahDisk (консоль) — кто съел место на диске.
 //  Сканирование живёт в Scanner.cs, текстовый отчёт — в TextReport.cs
 //  (их же использует GUI-версия).
 // ============================================================================
@@ -42,7 +42,7 @@ if (!Directory.Exists(target))
 var rootInfo = new DirectoryInfo(target);
 
 Console.WriteLine();
-Console.WriteLine($"SpaceSaver — сканирую: {rootInfo.FullName}");
+Console.WriteLine($"NoahDisk — сканирую: {rootInfo.FullName}");
 
 var stats = new ScanStats();
 var sw = Stopwatch.StartNew();
@@ -140,11 +140,11 @@ sealed class Options
     public static void PrintHelp()
     {
         Console.WriteLine(
-@"SpaceSaver — кто съел место на диске.
+@"NoahDisk — кто съел место на диске.
 
 Использование:
-  SpaceSaver <путь> [опции]
-  SpaceSaver                  (спросит путь)
+  NoahDisk <путь> [опции]
+  NoahDisk                  (спросит путь)
 
 Опции:
   --depth N     глубина дерева ""тяжёлых веток"" (по умолчанию 3, 0 — выключить)
@@ -153,7 +153,7 @@ sealed class Options
   --no-top      не показывать список крупнейших папок
   -h, --help    эта справка
 
-Подсказка: можно просто перетащить папку на SpaceSaver.exe.");
+Подсказка: можно просто перетащить папку на NoahDisk.exe.");
     }
 }
 
@@ -179,7 +179,7 @@ static class Report
         PrintNotes(stats);
 
         Console.WriteLine();
-        Console.WriteLine("SpaceSaver · автор: Chernyshelly · github.com/ChernyshellyOfficial");
+        Console.WriteLine("NoahDisk · автор: Chernyshelly · github.com/ChernyshellyOfficial");
     }
 
     static void PrintNotes(ScanStats stats)

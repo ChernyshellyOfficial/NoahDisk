@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace SpaceSaver;
+namespace NoahDisk;
 
 // ============================================================================
 //  Текстовый отчёт по дереву папок — общий для консоли и GUI.

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace SpaceSaver;
+namespace NoahDisk;
 
 // ============================================================================
 //  Аналитика поверх дерева папок. Чистая логика на DirNode (без UI) —

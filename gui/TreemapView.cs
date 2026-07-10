@@ -2,9 +2,9 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using SpaceSaver;
+using NoahDisk;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 /// <summary>Одна плитка treemap: узел + флаги + цвет (цвета назначает MainWindow, чтобы совпадали со списком).</summary>
 public sealed class Slice

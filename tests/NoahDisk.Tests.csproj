@@ -5,8 +5,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>SpaceSaver.Tests</AssemblyName>
-    <RootNamespace>SpaceSaver.Tests</RootNamespace>
+    <AssemblyName>NoahDisk.Tests</AssemblyName>
+    <RootNamespace>NoahDisk.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

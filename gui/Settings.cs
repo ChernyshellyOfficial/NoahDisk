@@ -2,10 +2,10 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 // Небольшие настройки, переживающие перезапуск: тема и последняя папка.
-// Хранятся в %LOCALAPPDATA%\SpaceSaver\settings.json. Любые ошибки — тихо игнорируются.
+// Хранятся в %LOCALAPPDATA%\NoahDisk\settings.json. Любые ошибки — тихо игнорируются.
 static class Settings
 {
     sealed class Data
@@ -16,7 +16,7 @@ static class Settings
 
     static string FilePath()
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SpaceSaver");
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoahDisk");
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "settings.json");
     }

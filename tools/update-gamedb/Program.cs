@@ -6,7 +6,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using SpaceSaver;
+using NoahDisk;
 
 // Обновляет встроенную базу имён игр. Качает свежий снимок списка приложений Steam
 // (GitHub-зеркало — официальный api.steampowered.com в ряде сетей отдаёт «Method not
@@ -31,7 +31,7 @@ string outGz = args.FirstOrDefault(a => a.EndsWith(".gz", StringComparison.Ordin
         : throw new Exception("Не нашёл корень репозитория. Укажи путь к steam_names.txt.gz аргументом."));
 
 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
-http.DefaultRequestHeaders.UserAgent.ParseAdd("SpaceSaver-update-gamedb/1.0");
+http.DefaultRequestHeaders.UserAgent.ParseAdd("NoahDisk-update-gamedb/1.0");
 Console.WriteLine(srcFile != null ? $"Читаю {srcFile} …" : $"Скачиваю {MirrorUrl} …");
 using var stream = srcFile != null ? File.OpenRead(srcFile) : await http.GetStreamAsync(MirrorUrl);
 using var doc = await JsonDocument.ParseAsync(stream);
@@ -55,11 +55,11 @@ using (var sw = new StreamWriter(gz))
 
 Console.WriteLine($"Готово: {sorted.Count} имён → {outGz} ({new FileInfo(outGz).Length / 1024} КБ)");
 
-// Ищем корень репозитория вверх по дереву — по наличию gui/SpaceSaver.Gui.csproj.
+// Ищем корень репозитория вверх по дереву — по наличию gui/NoahDisk.Gui.csproj.
 static string? FindRepoRoot()
 {
     for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
-        if (File.Exists(Path.Combine(d.FullName, "gui", "SpaceSaver.Gui.csproj")))
+        if (File.Exists(Path.Combine(d.FullName, "gui", "NoahDisk.Gui.csproj")))
             return d.FullName;
     return null;
 }

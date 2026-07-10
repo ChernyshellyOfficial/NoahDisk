@@ -3,7 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 public partial class App : Application
 {
@@ -17,7 +17,7 @@ public partial class App : Application
     {
         Log(e.Exception);
         e.Handled = true; // не даём приложению молча закрыться
-        try { MessageBox.Show(e.Exception.ToString(), "SpaceSaver — ошибка"); } catch { }
+        try { MessageBox.Show(e.Exception.ToString(), "NoahDisk — ошибка"); } catch { }
     }
 
     public static void Log(Exception? ex)
@@ -27,7 +27,7 @@ public partial class App : Application
         {
             try
             {
-                File.AppendAllText(Path.Combine(dir, "SpaceSaver-crash.log"),
+                File.AppendAllText(Path.Combine(dir, "NoahDisk-crash.log"),
                     $"==== {DateTime.Now:yyyy-MM-dd HH:mm:ss} ====\n{ex}\n\n");
                 return;
             }

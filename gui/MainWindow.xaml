@@ -1,8 +1,8 @@
-<Window x:Class="SpaceSaver.Gui.MainWindow"
+<Window x:Class="NoahDisk.Gui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:SpaceSaver.Gui"
-        Title="SpaceSaver" Height="780" Width="1200" MinHeight="520" MinWidth="900"
+        xmlns:local="clr-namespace:NoahDisk.Gui"
+        Title="NoahDisk" Height="780" Width="1200" MinHeight="520" MinWidth="900"
         Icon="app.ico"
         Background="{DynamicResource WinBg}" FontFamily="Segoe UI" UseLayoutRounding="True"
         AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" KeyDown="OnWindowKey">

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.Win32;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 // Установленные программы из реестра Windows (ключи Uninstall): точный путь установки
 // (InstallLocation) → отображаемое имя (DisplayName). Используется в глобальном скане,

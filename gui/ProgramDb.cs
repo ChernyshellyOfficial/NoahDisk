@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using SpaceSaver;
+using NoahDisk;
 
-namespace SpaceSaver.Gui;
+namespace NoahDisk.Gui;
 
 // Встроенный список имён популярных программ (снимок Chocolatey). Дополняет реестр
 // (InstalledPrograms): реестр ловит установленные программы по пути, а этот список —
