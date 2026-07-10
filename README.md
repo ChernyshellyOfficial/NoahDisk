@@ -6,7 +6,7 @@
 
 ![NoahDisk — глобальный скан: игры и программы узнаются по именам](docs/screenshot.png)
 
-**⬇ [Скачать NoahDisk 1.0.0 — портативный `.exe`](https://github.com/ChernyshellyOfficial/NoahDisk/releases/latest)** — скачал и запустил, установка и рантайм не нужны.
+**⬇ [Скачать NoahDisk — портативный `.exe`](https://github.com/ChernyshellyOfficial/NoahDisk/releases/latest)** — скачал и запустил, установка и рантайм не нужны.
 
 Две версии с общим движком сканирования (`Scanner.cs`):
 
